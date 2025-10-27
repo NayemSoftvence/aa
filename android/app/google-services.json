@@ -1,0 +1,62 @@
+{
+  "project_info": {
+    "project_number": "949138181567",
+    "project_id": "livekit-calling",
+    "storage_bucket": "livekit-calling.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:949138181567:android:4b45e0b60017550b30250a",
+        "android_client_info": {
+          "package_name": "com.livekitCalling.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "949138181567-04hnq3h99jfcrpk0h92evlk93nav11cc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.livekitCalling.app",
+            "certificate_hash": "a101947ff069f193293b8122b6f1f79bff619431"
+          }
+        },
+        {
+          "client_id": "949138181567-s92g2r4eqm17iiu5h98s062vof3dsirs.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.livekitCalling.app",
+            "certificate_hash": "89dfe02ad24a1e73aaf497c36aaafdbea77dba9b"
+          }
+        },
+        {
+          "client_id": "949138181567-5pkbsq4elr34aocubu6slf8vohfmpunf.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCqJaMENDQIWCa4I8DKBejHUfG7pFiYy-g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "949138181567-5pkbsq4elr34aocubu6slf8vohfmpunf.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "949138181567-nhpe0ohda6j403aboos9i9obki5dsaju.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.livekitCalling.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
