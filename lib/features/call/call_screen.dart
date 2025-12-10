@@ -143,7 +143,13 @@ class _CallScreenState extends State<CallScreen> {
         'status': 'ended',
         'endedAt': FieldValue.serverTimestamp(),
       });
-      if (mounted) Get.offAll(() => const HomeScreen());
+      if (mounted) {
+        if (Navigator.canPop(context)) {
+          Navigator.pop(context);
+        } else {
+          Get.offAll(() => const HomeScreen());
+        }
+      }
     }
   }
 

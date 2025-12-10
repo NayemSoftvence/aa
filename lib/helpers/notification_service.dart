@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:developer';
 import 'dart:io';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -14,6 +13,7 @@ import 'package:flutter_callkit_incoming/entities/android_params.dart';
 import 'package:flutter_callkit_incoming/entities/ios_params.dart';
 import 'package:livekit_calling_app/helpers/navigation_service.dart';
 import '../constants/app_constants.dart';
+import '../features/call/call_screen.dart';
 import 'di.dart';
 
 class NotificationService {
@@ -21,7 +21,7 @@ class NotificationService {
   static final FirebaseMessaging _messaging = FirebaseMessaging.instance;
   static final FlutterLocalNotificationsPlugin _localNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
-  var _navKey = NavigationService.navigatorKey;
+
   static StreamSubscription? _ckSub;
 
   static Future<void> initialize() async {
@@ -64,14 +64,26 @@ class NotificationService {
         log("Notification clicked: ${response.payload}");
       },
     );
+    await _localNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.requestFullScreenIntentPermission();
 
+    final canFullScreen = await FlutterCallkitIncoming.canUseFullScreenIntent();
+    if (canFullScreen == false) {
+      await FlutterCallkitIncoming.requestFullIntentPermission();
+    }
     await FirebaseMessaging.instance
         .setForegroundNotificationPresentationOptions(
           alert: true,
           badge: true,
           sound: true,
         );
+    await FlutterCallkitIncoming.canUseFullScreenIntent();
 
+    // Request full intent permission
+    await FlutterCallkitIncoming.requestFullIntentPermission();
     //FirebaseMessaging.onMessageOpenedApp.listen(handleMessage);
     // FirebaseMessaging.instance.getInitialMessage().then(handleMessage);
 
@@ -145,12 +157,12 @@ class NotificationService {
       await _showIncomingCall(data);
 
       // Optionally also show a local notif for foreground Android (if you want)
-      if (inForeground && !Platform.isIOS && message.notification != null) {
-        await _showLocal(
-          title: message.notification!.title ?? 'Incoming call',
-          body: message.notification!.body ?? 'Tap to answer',
-        );
-      }
+      // if (inForeground && !Platform.isIOS && message.notification != null) {
+      //   await _showLocal(
+      //     title: message.notification!.title ?? 'Incoming call',
+      //     body: message.notification!.body ?? 'Tap to answer',
+      //   );
+      // }
     } else if (type == 'call_ended') {
       // Optional: if you implement a "cancel ring" push
       await FlutterCallkitIncoming.endAllCalls();
@@ -191,6 +203,8 @@ class NotificationService {
     await FlutterCallkitIncoming.showCallkitIncoming(params);
   }
 
+  static String? pendingCallId;
+
   static Future<void> _acceptCall(String callId) async {
     try {
       await FirebaseFirestore.instance.collection('calls').doc(callId).update({
@@ -205,7 +219,10 @@ class NotificationService {
     final nav = NavigationService.navigatorKey.currentState;
     if (nav != null) {
       // Replace with your actual import/path or routing
-      // nav.push(MaterialPageRoute(builder: (_) => CallScreen(callId: callId)));
+      nav.push(MaterialPageRoute(builder: (_) => CallScreen(callId: callId)));
+    } else {
+      log('Navigator not ready, setting pendingCallId = $callId');
+      pendingCallId = callId;
     }
   }
 

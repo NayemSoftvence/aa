@@ -9,6 +9,9 @@ import 'helpers/helper_methods.dart';
 import 'helpers/post_login.dart';
 import 'networks/dio/dio.dart';
 import 'welcome_screen.dart';
+import 'helpers/notification_service.dart';
+import 'features/call/call_screen.dart';
+import 'package:get/get.dart';
 
 final class Loading extends StatefulWidget {
   const Loading({super.key});
@@ -54,6 +57,20 @@ class _LoadingState extends State<Loading> {
       _timer!.cancel();
       _isLoading = false;
     });
+
+    // Check for pending call
+    final pendingId = NotificationService.pendingCallId;
+    if (pendingId != null) {
+      NotificationService.pendingCallId = null; // consume it
+      // Brief delay to ensure Home is rendered first if we want to "push" on top
+      // Or just navigate immediately.
+      // Since we use Get.to or Navigator, if we want to come back to Home, we should ensure Home is in stack.
+      // But Loading builds HomeScreen if logged in.
+      // So simple navigation should work if we are already logged in.
+      if (appData.read(kKeyIsLoggedIn)) {
+         Get.to(() => CallScreen(callId: pendingId));
+      }
+    }
   }
 
   void _handleLogout() {
