@@ -1,6 +1,6 @@
 // ignore_for_file: constant_identifier_names
 
-const String url = "";
+const String url = 'https://livekitcall.netlify.app';
 
 final class NetworkConstants {
   NetworkConstants._();
@@ -22,5 +22,11 @@ final class Endpoints {
   // static String getShopByCategories(String slug) =>
   //     "/api/shop-categories/$slug/";
 
-    static String example() => "/api/";
+  static String example() => "/api/";
+  static String livekitToken() => '/.netlify/functions/token';
+  static String livekitNotify() => '/.netlify/functions/notify';
+
+  // For local testing, you can temporarily switch:
+  // static String netlifyBaseLocalAndroid = 'http://10.0.2.2:8888';
+  // static String netlifyBaseLocalIOS = 'http://127.0.0.1:8888';
 }

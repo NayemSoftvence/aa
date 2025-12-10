@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../auth/login.dart';
+import '../../call/call_screen.dart';
+import '../data/livekit_netlify_api.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -186,6 +190,14 @@ class _HomeScreenState extends State<HomeScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Calling $calleeName...')));
+      // Optional: send FCM push to callee (don’t block UI)
+      unawaited(
+        LivekitNetlifyApi.instance
+            .notifyIncoming(callRef.id)
+            .catchError((_) {}),
+      );
+
+      Get.to(() => CallScreen(callId: callRef.id)); // or Navigator.push(...)
 
       // Next step (when ready): navigate to a "Ringing" screen or wait for accept,
       // then request LiveKit token and join the room.
@@ -334,6 +346,11 @@ class _IncomingCallBanner extends StatelessWidget {
                     'status': 'accepted',
                     'acceptedAt': FieldValue.serverTimestamp(),
                   });
+                  if (context.mounted) {
+                    Get.to(
+                      () => CallScreen(callId: callId),
+                    ); // or Navigator.push(...)
+                  }
                   // Next step: fetch LiveKit token and join roomName.
                 },
                 child: const Text('Accept'),

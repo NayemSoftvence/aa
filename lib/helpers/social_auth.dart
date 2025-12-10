@@ -3,9 +3,12 @@ import 'dart:developer';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:livekit_calling_app/helpers/di.dart';
 import 'package:livekit_calling_app/helpers/loading_helper.dart';
 import 'package:livekit_calling_app/networks/dio/dio.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+
+import '../constants/app_constants.dart';
 
 class SocialAuthHelper {
   static final _auth = FirebaseAuth.instance;
@@ -79,11 +82,14 @@ class SocialAuthHelper {
       );
       log("accessToken: ${auth.accessToken}");
       log("auth: ${auth.idToken}");
-      DioSingleton.instance.update(auth.idToken ?? '');
+      //DioSingleton.instance.update(auth.idToken ?? '');
 
       final userCredential = await _auth.signInWithCredential(credential);
       final firebaseIdToken = await userCredential.user!.getIdToken(true);
       log("firebaseIdToken: $firebaseIdToken");
+      DioSingleton.instance.update(firebaseIdToken ?? '');
+      appData.write(kKeyAccessToken, firebaseIdToken);
+      appData.write(kKeyIsLoggedIn, true);
       // log(firebaseIdToken.toString());
       await _handleLoginSuccess(
         user: userCredential.user,

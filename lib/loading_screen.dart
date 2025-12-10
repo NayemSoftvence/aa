@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:livekit_calling_app/features/auth/login.dart';
+import 'package:livekit_calling_app/features/home/presentation/home.dart';
 import 'constants/app_constants.dart';
 import 'helpers/di.dart';
 import 'helpers/helper_methods.dart';
@@ -70,7 +71,7 @@ class _LoadingState extends State<Loading> {
       return const WelcomeScreen();
     } else {
       return appData.read(kKeyIsLoggedIn)
-          ? const LoginScreen()
+          ? const HomeScreen()
           : appData.read(kKeyfirstTime)
           ? const LoginScreen()
           : const LoginScreen();
