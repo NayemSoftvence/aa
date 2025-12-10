@@ -14,6 +14,7 @@ import 'package:flutter_callkit_incoming/entities/ios_params.dart';
 import 'package:livekit_calling_app/helpers/navigation_service.dart';
 import '../constants/app_constants.dart';
 import '../features/call/call_screen.dart';
+import '../providers/call_state_provider.dart';
 import 'di.dart';
 
 class NotificationService {
@@ -23,6 +24,14 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   static StreamSubscription? _ckSub;
+
+  // Static reference to provider - will be set when app initializes
+  static CallStateProvider? _callStateProvider;
+
+  static void setCallStateProvider(CallStateProvider provider) {
+    _callStateProvider = provider;
+    log('CallStateProvider registered in NotificationService');
+  }
 
   static Future<void> initialize() async {
     // Request permission for iOS
@@ -181,6 +190,16 @@ class NotificationService {
     final callerId = data['callerId'] as String? ?? 'Unknown';
     final roomName = data['roomName'] as String? ?? '';
 
+    // End any existing calls to prevent duplicates
+    await FlutterCallkitIncoming.endAllCalls();
+
+    // Notify provider about incoming call (if available)
+    _callStateProvider?.handleIncomingCall(
+      callId: callId,
+      callerId: callerId,
+      roomName: roomName,
+    );
+
     final params = CallKitParams(
       id: callId,
       nameCaller: callerId,
@@ -203,9 +222,10 @@ class NotificationService {
     await FlutterCallkitIncoming.showCallkitIncoming(params);
   }
 
-  static String? pendingCallId;
+  static String? pendingCallId; // Fallback for when provider isn't ready
 
   static Future<void> _acceptCall(String callId) async {
+    log('_acceptCall called with callId: $callId');
     try {
       await FirebaseFirestore.instance.collection('calls').doc(callId).update({
         'status': 'accepted',
@@ -215,14 +235,20 @@ class NotificationService {
       log('accept update failed: $e');
     }
 
-    // Navigate to CallScreen
-    final nav = NavigationService.navigatorKey.currentState;
-    if (nav != null) {
-      // Replace with your actual import/path or routing
-      nav.push(MaterialPageRoute(builder: (_) => CallScreen(callId: callId)));
+    // Try to use provider first
+    if (_callStateProvider != null) {
+      log('Using CallStateProvider to accept call');
+      _callStateProvider!.acceptCall();
     } else {
-      log('Navigator not ready, setting pendingCallId = $callId');
+      log('Provider not available, using fallback pendingCallId');
       pendingCallId = callId;
+    }
+
+    // Try to navigate if Navigator is ready
+    final nav = NavigationService.navigatorKey.currentState;
+    log('Navigator state: ${nav != null ? "ready" : "null"}');
+    if (nav != null) {
+      nav.push(MaterialPageRoute(builder: (_) => CallScreen(callId: callId)));
     }
   }
 

@@ -37,4 +37,16 @@ final class LivekitNetlifyApi {
       rethrow;
     }
   }
+
+  Future<bool> notifyCallEnded(String callId) async {
+    try {
+      final Response res = await postHttp(
+        Endpoints.livekitEndCall(), // You'll need to add this endpoint
+        jsonEncode({'callId': callId}),
+      );
+      return res.statusCode == 200;
+    } on DioException catch (_) {
+      return false; // Don't throw, just return false if it fails
+    }
+  }
 }

@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
+import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 
 // TODO: change to your actual path
 import '../home/data/livekit_netlify_api.dart' show LivekitNetlifyApi;
@@ -58,7 +59,16 @@ class _CallScreenState extends State<CallScreen> {
         try {
           await _room?.disconnect();
         } catch (_) {}
-        if (mounted) Navigator.maybePop(context);
+        // End CallKit notification
+        await FlutterCallkitIncoming.endCall(widget.callId);
+        if (mounted) {
+          if (Navigator.canPop(context)) {
+            Navigator.pop(context);
+          } else {
+            // Fallback if we can't pop (shouldn't happen for pushed route, but safe)
+            Get.offAll(() => const HomeScreen());
+          }
+        }
       }
     });
   }
@@ -143,6 +153,13 @@ class _CallScreenState extends State<CallScreen> {
         'status': 'ended',
         'endedAt': FieldValue.serverTimestamp(),
       });
+      // Notify the other user to stop ringing
+      // TODO: Uncomment after deploying endCall function to Netlify
+      // LivekitNetlifyApi.instance
+      //     .notifyCallEnded(widget.callId)
+      //     .catchError((_) => false);
+      // End CallKit notification
+      await FlutterCallkitIncoming.endCall(widget.callId);
       if (mounted) {
         if (Navigator.canPop(context)) {
           Navigator.pop(context);

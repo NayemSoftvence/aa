@@ -15,6 +15,8 @@ import 'helpers/notification_service.dart';
 import 'networks/dio/dio.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
+import 'package:provider/provider.dart';
+import 'providers/call_state_provider.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -46,17 +48,20 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     rotation();
     setInitValue();
-    return AnimateIfVisibleWrapper(
-      showItemInterval: const Duration(milliseconds: 150),
-      child: PopScope(
-        canPop: false,
-        onPopInvokedWithResult: (bool didPop, _) async {
-          showMaterialDialog(context);
-        },
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return const UtillScreenMobile();
+    return ChangeNotifierProvider(
+      create: (_) => CallStateProvider(),
+      child: AnimateIfVisibleWrapper(
+        showItemInterval: const Duration(milliseconds: 150),
+        child: PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (bool didPop, _) async {
+            showMaterialDialog(context);
           },
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return const UtillScreenMobile();
+            },
+          ),
         ),
       ),
     );

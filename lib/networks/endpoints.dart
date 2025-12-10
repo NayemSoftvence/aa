@@ -25,6 +25,7 @@ final class Endpoints {
   static String example() => "/api/";
   static String livekitToken() => '/.netlify/functions/token';
   static String livekitNotify() => '/.netlify/functions/notify';
+  static String livekitEndCall() => '/.netlify/functions/endCall';
 
   // For local testing, you can temporarily switch:
   // static String netlifyBaseLocalAndroid = 'http://10.0.2.2:8888';

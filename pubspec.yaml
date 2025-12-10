@@ -57,6 +57,7 @@ dependencies:
   livekit_client: ^2.5.4
   wakelock_plus: ^1.4.0
   flutter_callkit_incoming:
+  provider: ^6.1.5+1
 
 
 
