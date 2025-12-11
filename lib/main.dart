@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:auto_animated/auto_animated.dart';
 import 'package:livekit_calling_app/loading_screen.dart';
+import 'constants/app_constants.dart';
 import 'constants/custome_theme.dart';
 import 'gen/colors.gen.dart';
 import 'helpers/all_routes.dart';
@@ -15,12 +16,11 @@ import 'helpers/notification_service.dart';
 import 'networks/dio/dio.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
-import 'package:provider/provider.dart';
-import 'providers/call_state_provider.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
   await NotificationService.handleRemoteMessage(message);
 }
 
@@ -48,20 +48,17 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     rotation();
     setInitValue();
-    return ChangeNotifierProvider(
-      create: (_) => CallStateProvider(),
-      child: AnimateIfVisibleWrapper(
-        showItemInterval: const Duration(milliseconds: 150),
-        child: PopScope(
-          canPop: false,
-          onPopInvokedWithResult: (bool didPop, _) async {
-            showMaterialDialog(context);
+    return AnimateIfVisibleWrapper(
+      showItemInterval: const Duration(milliseconds: 150),
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (bool didPop, _) async {
+          showMaterialDialog(context);
+        },
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return const UtillScreenMobile();
           },
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return const UtillScreenMobile();
-            },
-          ),
         ),
       ),
     );

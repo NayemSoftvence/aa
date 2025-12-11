@@ -10,6 +10,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 
 // TODO: change to your actual path
+import '../../constants/app_constants.dart';
 import '../home/data/livekit_netlify_api.dart' show LivekitNetlifyApi;
 
 class CallScreen extends StatefulWidget {
@@ -35,6 +36,7 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void initState() {
+    // kKeyIsFromNotification = false;
     super.initState();
     _observeCallStatus();
     _join();
