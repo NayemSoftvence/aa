@@ -28,7 +28,6 @@ class _LoadingState extends State<Loading> {
     super.initState();
     _timer = Timer(const Duration(seconds: 35), () {
       if (_isLoading) {
-        // Only log out if internet is connected but loading is taking too long
         _handleLogout();
       }
     });
@@ -38,22 +37,19 @@ class _LoadingState extends State<Loading> {
     print('[LoadingScreen] loadInitialData started');
 
     await setInitValue();
-    print('[LoadingScreen] setInitValue completed');
 
     if (appData.read(kKeyIsLoggedIn)) {
       String token = appData.read(kKeyAccessToken);
       DioSingleton.instance.update(token);
       await performPostLoginActions();
-    } else {
-      //  NotificationService().cancelAllNotifications();
     }
+
+    // CallStateProvider registration moved to main.dart for early initialization
 
     setState(() {
       _timer!.cancel();
       _isLoading = false;
     });
-
-    print('[LoadingScreen] setState completed, _isLoading=false');
   }
 
   void _handleLogout() {
@@ -64,12 +60,9 @@ class _LoadingState extends State<Loading> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const WelcomeScreen();
-    } else {
-      return appData.read(kKeyIsLoggedIn)
-          ? const HomeScreen()
-          : appData.read(kKeyfirstTime)
-          ? const LoginScreen()
-          : const LoginScreen();
     }
+    return appData.read(kKeyIsLoggedIn)
+        ? const HomeScreen()
+        : const LoginScreen();
   }
 }

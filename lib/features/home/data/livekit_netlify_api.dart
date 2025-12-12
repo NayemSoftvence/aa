@@ -49,4 +49,28 @@ final class LivekitNetlifyApi {
       return false; // Don't throw, just return false if it fails
     }
   }
+
+  Future<bool> notifyCallAccepted(String callId) async {
+    try {
+      final Response res = await postHttp(
+        Endpoints.livekitCallAccepted(),
+        jsonEncode({'callId': callId}),
+      );
+      return res.statusCode == 200;
+    } on DioException catch (_) {
+      return false; // Don't throw, just return false if it fails
+    }
+  }
+
+  Future<bool> notifyCallDeclined(String callId) async {
+    try {
+      final Response res = await postHttp(
+        Endpoints.livekitCallDeclined(),
+        jsonEncode({'callId': callId}),
+      );
+      return res.statusCode == 200;
+    } on DioException catch (_) {
+      return false;
+    }
+  }
 }

@@ -5,7 +5,6 @@ import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:auto_animated/auto_animated.dart';
 import 'package:livekit_calling_app/loading_screen.dart';
-import 'constants/app_constants.dart';
 import 'constants/custome_theme.dart';
 import 'gen/colors.gen.dart';
 import 'helpers/all_routes.dart';
@@ -15,13 +14,22 @@ import 'helpers/navigation_service.dart';
 import 'helpers/notification_service.dart';
 import 'networks/dio/dio.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:provider/provider.dart';
 import 'firebase_options.dart';
+import 'common_widgets/call_screen_overlay.dart';
+import 'providers/call_state_provider.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-  await NotificationService.handleRemoteMessage(message);
+  print("[BackgroundHandler] Handling message: ${message.data}");
+  // We don't need full NotificationService init (which requests permissions), just handling logic
+  // But we might need to ensure CallKit is usable? Usually yes.
+  await NotificationService.handleRemoteMessage(
+    message,
+    openedFromTray: false,
+    coldStart: false,
+  );
 }
 
 void main() async {
@@ -29,16 +37,19 @@ void main() async {
 
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  //await _requestPermissions();
   await GetStorage.init();
   diSetup();
   DioSingleton.instance.create();
-  // initiInternetChecker();
-  // await LocationService.instance.initialize();
-
   await NotificationService.initialize();
 
-  runApp(const MyApp());
+  // Create CallStateProvider instance and register it immediately
+  // This ensures it's available for CallKit events that may fire early
+  final callProvider = CallStateProvider();
+  NotificationService.registerCallProvider(callProvider);
+
+  runApp(
+    ChangeNotifierProvider.value(value: callProvider, child: const MyApp()),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -47,19 +58,13 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     rotation();
-    setInitValue();
+
     return AnimateIfVisibleWrapper(
       showItemInterval: const Duration(milliseconds: 150),
-      child: PopScope(
-        canPop: false,
-        onPopInvokedWithResult: (bool didPop, _) async {
-          showMaterialDialog(context);
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return const UtillScreenMobile();
         },
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return const UtillScreenMobile();
-          },
-        ),
       ),
     );
   }
@@ -81,7 +86,6 @@ class UtillScreenMobile extends StatelessWidget {
             showMaterialDialog(context);
           },
           child: GetMaterialApp(
-            //    showPerformanceOverlay: true,
             theme: ThemeData(
               unselectedWidgetColor: Colors.white,
               primarySwatch: CustomTheme.kToDark,
@@ -94,7 +98,9 @@ class UtillScreenMobile extends StatelessWidget {
             ),
             debugShowCheckedModeBanner: false,
             builder: (context, widget) {
-              return MediaQuery(data: MediaQuery.of(context), child: widget!);
+              return CallScreenOverlay(
+                child: MediaQuery(data: MediaQuery.of(context), child: widget!),
+              );
             },
             navigatorKey: NavigationService.navigatorKey,
             onGenerateRoute: RouteGenerator.generateRoute,

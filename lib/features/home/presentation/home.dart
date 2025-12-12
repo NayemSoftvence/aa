@@ -4,9 +4,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
+import 'package:provider/provider.dart';
+import '../../../common_widgets/call_bar_overlay.dart';
 import '../../../constants/app_constants.dart';
+import '../../../helpers/di.dart';
+import '../../../providers/call_state_provider.dart';
 import '../../auth/login.dart';
-import '../../call/call_screen.dart';
 import '../data/livekit_netlify_api.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -16,14 +20,134 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _auth = FirebaseAuth.instance;
   final _db = FirebaseFirestore.instance;
+  StreamSubscription? _callDocSubscription;
+  StreamSubscription? _restoreCallSub;
 
   String _search = '';
   bool _showOnlyOnline = false;
 
   User get me => _auth.currentUser!;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _setupCallRestoration();
+    _checkNativeActiveCalls(); // Also check immediately on load
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkNativeActiveCalls();
+    }
+  }
+
+  /// Checks if CallKit has an active call that we missed
+  Future<void> _checkNativeActiveCalls() async {
+    try {
+      final calls = await FlutterCallkitIncoming.activeCalls();
+      if (calls is List && calls.isNotEmpty) {
+        print('[HomeScreen] Found ${calls.length} active native calls');
+        for (final call in calls) {
+          final data = call as Map<dynamic, dynamic>;
+          final callId = data['id'] as String?;
+          final extra = data['extra'] as Map<dynamic, dynamic>?;
+          final caller =
+              data['nameCaller'] as String? ?? extra?['nameCaller'] as String?;
+          final roomName = extra?['roomName'] as String?;
+
+          if (callId != null) {
+            final callProvider = context.read<CallStateProvider>();
+            // If provider doesn't know about this call, hydrate it
+            if (callProvider.callId != callId ||
+                callProvider.state == CallState.idle) {
+              print('[HomeScreen] Syncing native call $callId to provider');
+              callProvider.handleIncomingCall(
+                callId: callId,
+                callerId: caller ?? 'Unknown',
+                roomName: roomName,
+                isIncoming: true, // Assume incoming for native sync usually
+              );
+              callProvider.acceptCall();
+              callProvider.startCall();
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('[HomeScreen] Error checking native calls: $e');
+    }
+  }
+
+  void _setupCallRestoration() {
+    // Listen for any active calls involving me
+    // This handles:
+    // 1. App restart during call
+    // 2. Ensuring UI stays in sync with 'accepted' state
+    _restoreCallSub = _db
+        .collection('calls')
+        .where('participants', arrayContains: me.uid)
+        .where('status', isEqualTo: 'accepted')
+        .limit(5) // Fetch a few to find the valid one
+        .snapshots()
+        .listen((snap) {
+          if (snap.docs.isNotEmpty) {
+            // Find the most recent valid call
+            QueryDocumentSnapshot<Map<String, dynamic>>? targetDoc;
+            DateTime? latestTime;
+
+            for (var doc in snap.docs) {
+              final data = doc.data();
+              final ts = data['createdAt'] as Timestamp?;
+              if (ts == null) continue;
+
+              final dt = ts.toDate();
+              // Ignore calls older than 6 hours
+              if (DateTime.now().difference(dt).inHours > 6) continue;
+
+              if (latestTime == null || dt.isAfter(latestTime)) {
+                latestTime = dt;
+                targetDoc = doc;
+              }
+            }
+
+            if (targetDoc != null) {
+              final data = targetDoc.data();
+              final callId = targetDoc.id;
+
+              final callProvider = context.read<CallStateProvider>();
+              // Only restore if we aren't already in THAT call
+              if (callProvider.callId != callId || !callProvider.isInCall) {
+                print('[HomeScreen] Restoring active recent call: $callId');
+
+                final isMeCaller = data['callerId'] == me.uid;
+                final caller = data['callerId'] as String? ?? 'Unknown';
+
+                callProvider.handleIncomingCall(
+                  callId: callId,
+                  callerId: caller,
+                  roomName: data['roomName'] as String?,
+                  isIncoming: !isMeCaller,
+                );
+                callProvider.acceptCall();
+                callProvider.startCall();
+              }
+            }
+          }
+        });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _callDocSubscription?.cancel();
+    _restoreCallSub?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,124 +170,121 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () async {
               _auth.signOut();
               Get.offAll(() => const LoginScreen());
+              appData.write(kKeyIsLoggedIn, false);
             },
             icon: const Icon(Icons.logout, color: Colors.black),
           ),
           const SizedBox(width: 8),
         ],
       ),
-      body: Column(
-        children: [
-          _IncomingCallBanner(myUid: me.uid, db: _db),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    onChanged:
-                        (v) => setState(() => _search = v.trim().toLowerCase()),
-                    decoration: InputDecoration(
-                      hintText: 'Search people',
-                      prefixIcon: const Icon(Icons.search),
-                      filled: true,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide.none,
+      body: CallBarOverlay(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      onChanged:
+                          (v) =>
+                              setState(() => _search = v.trim().toLowerCase()),
+                      decoration: InputDecoration(
+                        hintText: 'Search people',
+                        prefixIcon: const Icon(Icons.search),
+                        filled: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide.none,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                FilterChip(
-                  label: const Text('Online'),
-                  selected: _showOnlyOnline,
-                  onSelected: (v) => setState(() => _showOnlyOnline = v),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  FilterChip(
+                    label: const Text('Online'),
+                    selected: _showOnlyOnline,
+                    onSelected: (v) => setState(() => _showOnlyOnline = v),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: _db.collection('users').snapshots(),
-              builder: (context, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (!snap.hasData) {
-                  return const Center(child: Text('No users yet'));
-                }
+            const SizedBox(height: 8),
+            Expanded(
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: _db.collection('users').snapshots(),
+                builder: (context, snap) {
+                  if (snap.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (!snap.hasData) {
+                    return const Center(child: Text('No users yet'));
+                  }
 
-                // Filter: remove me, apply search and online toggle
-                final docs =
-                    snap.data!.docs.where((d) => d.id != me.uid).where((d) {
-                        final data = d.data();
-                        if (_showOnlyOnline && (data['isOnline'] != true)) {
-                          return false;
-                        }
+                  // Filter: remove me, apply search and online toggle
+                  final docs =
+                      snap.data!.docs.where((d) => d.id != me.uid).where((d) {
+                          final data = d.data();
+                          if (_showOnlyOnline && (data['isOnline'] != true)) {
+                            return false;
+                          }
 
-                        if (_search.isEmpty) return true;
-                        final name =
-                            (data['displayName'] ?? '')
-                                .toString()
-                                .toLowerCase();
-                        final email =
-                            (data['email'] ?? '').toString().toLowerCase();
-                        return name.contains(_search) ||
-                            email.contains(_search);
-                      }).toList()
-                      ..sort((a, b) {
-                        final an =
-                            (a.data()['displayName'] ?? '')
-                                .toString()
-                                .toLowerCase();
-                        final bn =
-                            (b.data()['displayName'] ?? '')
-                                .toString()
-                                .toLowerCase();
-                        return an.compareTo(bn);
-                      });
+                          if (_search.isEmpty) return true;
+                          final name =
+                              (data['displayName'] ?? '')
+                                  .toString()
+                                  .toLowerCase();
+                          final email =
+                              (data['email'] ?? '').toString().toLowerCase();
+                          return name.contains(_search) ||
+                              email.contains(_search);
+                        }).toList()
+                        ..sort((a, b) {
+                          final an =
+                              (a.data()['displayName'] ?? '')
+                                  .toString()
+                                  .toLowerCase();
+                          final bn =
+                              (b.data()['displayName'] ?? '')
+                                  .toString()
+                                  .toLowerCase();
+                          return an.compareTo(bn);
+                        });
 
-                if (docs.isEmpty) {
-                  return const Center(child: Text('No matching users'));
-                }
+                  if (docs.isEmpty) {
+                    return const Center(child: Text('No matching users'));
+                  }
 
-                return ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-                  itemCount: docs.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 6),
-                  itemBuilder: (context, i) {
-                    final data = docs[i].data();
-                    final uid = docs[i].id;
-                    final name = data['displayName'] ?? 'Unknown';
-                    final email = data['email'] ?? '';
-                    final photo = data['photoURL'] as String?;
-                    final online = data['isOnline'] == true;
-                    final lastSeen = data['lastSeen'] as Timestamp?;
+                  return ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                    itemCount: docs.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 6),
+                    itemBuilder: (context, i) {
+                      final data = docs[i].data();
+                      final uid = docs[i].id;
+                      final name = data['displayName'] ?? 'Unknown';
+                      final email = data['email'] ?? '';
+                      final photo = data['photoURL'] as String?;
+                      final online = data['isOnline'] == true;
+                      final lastSeen = data['lastSeen'] as Timestamp?;
 
-                    return _UserTile(
-                      uid: uid,
-                      name: name,
-                      email: email,
-                      photoUrl: photo,
-                      isOnline: online,
-                      lastSeen: lastSeen?.toDate(),
-                      onCall: () => _startCall(calleeId: uid, calleeName: name),
-                    );
-                  },
-                );
-              },
+                      return _UserTile(
+                        uid: uid,
+                        name: name,
+                        email: email,
+                        photoUrl: photo,
+                        isOnline: online,
+                        lastSeen: lastSeen?.toDate(),
+                        onCall:
+                            () => _startCall(calleeId: uid, calleeName: name),
+                      );
+                    },
+                  );
+                },
+              ),
             ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          // Optional: open dialer / join by room name
-        },
-        icon: const Icon(Icons.add_call),
-        label: const Text('New call'),
+          ],
+        ),
       ),
     );
   }
@@ -176,6 +297,8 @@ class _HomeScreenState extends State<HomeScreen> {
       // Create a call doc. Cloud Function can send FCM to callee on onCreate.
       final callRef = _db.collection('calls').doc();
       final roomName = 'room_${callRef.id}';
+      final callId = callRef.id;
+
       await callRef.set({
         'callerId': me.uid,
         'calleeId': calleeId,
@@ -189,6 +312,41 @@ class _HomeScreenState extends State<HomeScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Calling $calleeName...')));
+
+      // Update provider to prepare for call (set generic info)
+      final callProvider = context.read<CallStateProvider>();
+      callProvider.handleIncomingCall(
+        callId: callId,
+        callerId: calleeName, // Show who we are calling
+        roomName: roomName,
+        isIncoming: false, // We are the caller
+      );
+
+      // Cancel any existing listener
+      await _callDocSubscription?.cancel();
+
+      // Listen to the call document for status changes (accepted/declined)
+      _callDocSubscription = callRef.snapshots().listen((snapshot) async {
+        if (!snapshot.exists) return;
+
+        final data = snapshot.data();
+        final status = data?['status'] as String?;
+
+        print('[HomeScreen] Call $callId status update: $status');
+
+        if (status == 'accepted') {
+          // Updates provider to transition to InCall state
+          // This will trigger CallScreenOverlay to show the CallScreen
+          callProvider.acceptCall();
+          callProvider.startCall();
+          // Hand off to CallScreen, stop listening here to avoid double logic
+          await _callDocSubscription?.cancel();
+        } else if (status == 'declined' || status == 'ended') {
+          callProvider.endCall();
+          await _callDocSubscription?.cancel();
+        }
+      });
+
       // Optional: send FCM push to callee (don’t block UI)
       unawaited(
         LivekitNetlifyApi.instance
@@ -196,10 +354,8 @@ class _HomeScreenState extends State<HomeScreen> {
             .catchError((_) {}),
       );
 
-      Get.to(() => CallScreen(callId: callRef.id)); // or Navigator.push(...)
-
-      // Next step (when ready): navigate to a "Ringing" screen or wait for accept,
-      // then request LiveKit token and join the room.
+      // Provider will be updated when call starts
+      // Overlay will show CallScreen automatically
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -285,79 +441,5 @@ class _UserTile extends StatelessWidget {
     if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     return '${diff.inDays}d ago';
-  }
-}
-
-class _IncomingCallBanner extends StatelessWidget {
-  final String myUid;
-  final FirebaseFirestore db;
-
-  const _IncomingCallBanner({required this.myUid, required this.db});
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream:
-          db
-              .collection('calls')
-              .where('calleeId', isEqualTo: myUid)
-              .where('status', isEqualTo: 'ringing')
-              .limit(1)
-              .snapshots(),
-      builder: (context, snap) {
-        if (!snap.hasData || snap.data!.docs.isEmpty) {
-          return const SizedBox.shrink();
-        }
-        final d = snap.data!.docs.first;
-        final callId = d.id;
-        final callerId = d['callerId'] as String?;
-        final roomName = d['roomName'] as String?;
-
-        return Container(
-          margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.blueAccent,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.ring_volume_rounded),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Incoming call${callerId != null ? ' from $callerId' : ''}',
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
-              ),
-              TextButton(
-                onPressed:
-                    () => db.collection('calls').doc(callId).update({
-                      'status': 'declined',
-                      'endedAt': FieldValue.serverTimestamp(),
-                    }),
-                child: const Text('Decline'),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                onPressed: () async {
-                  await db.collection('calls').doc(callId).update({
-                    'status': 'accepted',
-                    'acceptedAt': FieldValue.serverTimestamp(),
-                  });
-                  if (context.mounted) {
-                    Get.to(
-                      () => CallScreen(callId: callId),
-                    ); // or Navigator.push(...)
-                  }
-                  // Next step: fetch LiveKit token and join roomName.
-                },
-                child: const Text('Accept'),
-              ),
-            ],
-          ),
-        );
-      },
-    );
   }
 }

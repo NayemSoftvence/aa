@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart' as getx;
 import '../endpoints.dart';
@@ -24,17 +25,37 @@ final class DioSingleton {
       },
     );
 
-    dio = Dio(options)
-      ..interceptors.add(Logger())
-      ..interceptors.add(InterceptorsWrapper(
-        onError: (error, handler) {
-          if (_isGlobalError(error)) {
-            _handleGlobalError(error);
-            return handler.reject(error);
-          }
-          return handler.next(error);
-        },
-      ));
+    dio =
+        Dio(options)
+          ..interceptors.add(Logger())
+          ..interceptors.add(
+            InterceptorsWrapper(
+              onRequest: (options, handler) async {
+                // Check/Refresh Firebase Token before every request
+                try {
+                  final user = FirebaseAuth.instance.currentUser;
+                  if (user != null) {
+                    final token =
+                        await user.getIdToken(); // Auto-refreshes if expired
+                    if (token != null) {
+                      options.headers[NetworkConstants.AUTHORIZATION] =
+                          "Bearer $token";
+                    }
+                  }
+                } catch (e) {
+                  if (kDebugMode) print("Auth Interceptor Error: $e");
+                }
+                return handler.next(options);
+              },
+              onError: (error, handler) {
+                if (_isGlobalError(error)) {
+                  _handleGlobalError(error);
+                  return handler.reject(error);
+                }
+                return handler.next(error);
+              },
+            ),
+          );
   }
 
   void update(String auth) {
@@ -51,18 +72,38 @@ final class DioSingleton {
       connectTimeout: const Duration(milliseconds: 100000),
       receiveTimeout: const Duration(milliseconds: 100000),
     );
-    
-    dio = Dio(options)
-      ..interceptors.add(Logger())
-      ..interceptors.add(InterceptorsWrapper(
-        onError: (error, handler) {
-          if (_isGlobalError(error)) {
-            _handleGlobalError(error);
-            return handler.reject(error);
-          }
-          return handler.next(error);
-        },
-      ));
+
+    dio =
+        Dio(options)
+          ..interceptors.add(Logger())
+          ..interceptors.add(
+            InterceptorsWrapper(
+              onRequest: (options, handler) async {
+                // Check/Refresh Firebase Token before every request
+                try {
+                  final user = FirebaseAuth.instance.currentUser;
+                  if (user != null) {
+                    final token =
+                        await user.getIdToken(); // Auto-refreshes if expired
+                    if (token != null) {
+                      options.headers[NetworkConstants.AUTHORIZATION] =
+                          "Bearer $token";
+                    }
+                  }
+                } catch (e) {
+                  if (kDebugMode) print("Auth Interceptor Error: $e");
+                }
+                return handler.next(options);
+              },
+              onError: (error, handler) {
+                if (_isGlobalError(error)) {
+                  _handleGlobalError(error);
+                  return handler.reject(error);
+                }
+                return handler.next(error);
+              },
+            ),
+          );
   }
 
   bool _isGlobalError(DioException error) {

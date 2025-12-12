@@ -4,13 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:livekit_calling_app/features/home/presentation/home.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 
-// TODO: change to your actual path
+import 'package:flutter/scheduler.dart';
 import '../../constants/app_constants.dart';
+import '../../providers/call_state_provider.dart';
 import '../home/data/livekit_netlify_api.dart' show LivekitNetlifyApi;
 
 class CallScreen extends StatefulWidget {
@@ -36,14 +38,22 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void initState() {
-    // kKeyIsFromNotification = false;
     super.initState();
+
+    // Notify provider that call is starting and maximize (full screen)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final callProvider = context.read<CallStateProvider>();
+      callProvider.startCall();
+      callProvider.maximize();
+    });
+
     _observeCallStatus();
     _join();
   }
 
   @override
   void dispose() {
+    // Don't access context in dispose - widget is already deactivated
     _callSub?.cancel();
     _roomEvents?.dispose();
     _room?.dispose();
@@ -54,6 +64,12 @@ class _CallScreenState extends State<CallScreen> {
   void _observeCallStatus() {
     final ref = _db.collection('calls').doc(widget.callId);
     _callSub = ref.snapshots().listen((snap) async {
+      // Early return if widget is disposed - CHECK FIRST!
+      if (!mounted) {
+        print('[CallScreen] Widget disposed, ignoring status update');
+        return;
+      }
+
       final data = snap.data();
       if (data == null) return;
       final status = data['status'] as String?;
@@ -63,13 +79,20 @@ class _CallScreenState extends State<CallScreen> {
         } catch (_) {}
         // End CallKit notification
         await FlutterCallkitIncoming.endCall(widget.callId);
-        if (mounted) {
-          if (Navigator.canPop(context)) {
-            Navigator.pop(context);
-          } else {
-            // Fallback if we can't pop (shouldn't happen for pushed route, but safe)
-            Get.offAll(() => const HomeScreen());
-          }
+
+        // Double-check mounted before any context operations
+        if (!mounted) {
+          print('[CallScreen] Widget disposed during disconnect');
+          return;
+        }
+
+        // Update provider before navigation
+        try {
+          final callProvider = context.read<CallStateProvider>();
+          callProvider.endCall();
+          // Overlay will hide automatically
+        } catch (e) {
+          print('[CallScreen] Error updating provider: $e');
         }
       }
     });
@@ -88,7 +111,9 @@ class _CallScreenState extends State<CallScreen> {
             content: Text('Camera/Microphone permission required'),
           ),
         );
-        Navigator.pop(context);
+        // Navigator.pop(context); // Don't pop, overlay will stay or should be manually minimized/closed via provider logic if we want to force close
+        // Better: trigger endCall on provider
+        if (mounted) context.read<CallStateProvider>().endCall();
         return;
       }
 
@@ -128,22 +153,40 @@ class _CallScreenState extends State<CallScreen> {
 
       // 6) Room events: rerender when participants/tracks change, auto-close on disconnect
       _roomEvents?.on<RoomDisconnectedEvent>((_) {
-        if (mounted) Navigator.maybePop(context);
+        // Overlay handles hiding, no need to pop
       });
-      _roomEvents?.on<ParticipantConnectedEvent>((_) => setState(() {}));
-      _roomEvents?.on<ParticipantDisconnectedEvent>((_) => setState(() {}));
+      _roomEvents?.on<ParticipantConnectedEvent>((event) {
+        _updateParticipants();
+        setState(() {});
+      });
+      _roomEvents?.on<ParticipantDisconnectedEvent>((event) {
+        _updateParticipants();
+        setState(() {});
+      });
       _roomEvents?.on<TrackSubscribedEvent>((_) => setState(() {}));
       _roomEvents?.on<TrackUnsubscribedEvent>((_) => setState(() {}));
-      //   _roomEvents?.on<TrackMutedUpdatedEvent>((_) => setState(() {}));
       _roomEvents?.on<LocalTrackPublishedEvent>((_) => setState(() {}));
 
       setState(() {});
+      _updateParticipants();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Join failed: $e')));
-      Navigator.pop(context);
+      // Navigator.pop(context);
+      if (mounted) context.read<CallStateProvider>().endCall();
+    }
+  }
+
+  void _updateParticipants() {
+    if (_room != null && mounted) {
+      final participants = <Participant>[
+        if (_room!.localParticipant != null) _room!.localParticipant!,
+        ..._room!.remoteParticipants.values,
+      ];
+      final callProvider = context.read<CallStateProvider>();
+      callProvider.updateParticipants(participants);
     }
   }
 
@@ -155,19 +198,17 @@ class _CallScreenState extends State<CallScreen> {
         'status': 'ended',
         'endedAt': FieldValue.serverTimestamp(),
       });
-      // Notify the other user to stop ringing
-      // TODO: Uncomment after deploying endCall function to Netlify
-      // LivekitNetlifyApi.instance
-      //     .notifyCallEnded(widget.callId)
-      //     .catchError((_) => false);
-      // End CallKit notification
       await FlutterCallkitIncoming.endCall(widget.callId);
+
+      // Update provider
       if (mounted) {
-        if (Navigator.canPop(context)) {
-          Navigator.pop(context);
-        } else {
-          Get.offAll(() => const HomeScreen());
-        }
+        final callProvider = context.read<CallStateProvider>();
+        callProvider.endCall();
+      }
+
+      if (mounted) {
+        // Just rely on provider state change to hide the overlay.
+        // No need to pop navigator as we are in an overlay now.
       }
     }
   }
@@ -176,31 +217,59 @@ class _CallScreenState extends State<CallScreen> {
   Widget build(BuildContext context) {
     final room = _room;
 
-    return WillPopScope(
-      onWillPop: () async {
-        await _hangUp();
-        return false;
-      },
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        appBar: AppBar(
-          title: const Text('In Call'),
-          backgroundColor: Colors.black,
-          foregroundColor: Colors.white,
-          actions: [
-            // IconButton(
-            //   tooltip: 'End call',
-            //   onPressed: _hangUp,
-            //   icon: const Icon(Icons.call_end, color: Colors.redAccent),
-            // ),
-          ],
-        ),
-        body:
-            room == null
-                ? const Center(child: CircularProgressIndicator())
-                : Column(
-                  children: [Expanded(child: _videoGrid(room)), _controlsBar()],
+    return Container(
+      height: MediaQuery.of(context).size.height,
+      decoration: const BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(0)),
+      ),
+      child: WillPopScope(
+        onWillPop: () async {
+          // On back press, just minimize - overlay handles hiding
+          final callProvider = context.read<CallStateProvider>();
+          callProvider.minimize();
+          return false; // Prevent default back behavior
+        },
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            title: const Text('In Call'),
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_ios),
+              onPressed: () {
+                // Minimize call (overlay will hide automatically)
+                final callProvider = context.read<CallStateProvider>();
+                callProvider.minimize();
+              },
+            ),
+            actions: [
+              // Add minimize action button for clarity
+              TextButton.icon(
+                onPressed: () {
+                  final callProvider = context.read<CallStateProvider>();
+                  callProvider.minimize();
+                },
+                icon: const Icon(Icons.minimize, color: Colors.white),
+                label: const Text(
+                  'Minimize',
+                  style: TextStyle(color: Colors.white),
                 ),
+              ),
+              const SizedBox(width: 8),
+            ],
+          ),
+          body:
+              room == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : Column(
+                    children: [
+                      Expanded(child: _videoGrid(room)),
+                      _controlsBar(),
+                    ],
+                  ),
+        ),
       ),
     );
   }
@@ -274,6 +343,9 @@ class _CallScreenState extends State<CallScreen> {
               onTap: () async {
                 _micOn = !_micOn;
                 await _room?.localParticipant?.setMicrophoneEnabled(_micOn);
+                // Update provider
+                final callProvider = context.read<CallStateProvider>();
+                callProvider.setMuted(!_micOn);
                 setState(() {});
               },
             ),
@@ -282,6 +354,9 @@ class _CallScreenState extends State<CallScreen> {
               onTap: () async {
                 _camOn = !_camOn;
                 await _room?.localParticipant?.setCameraEnabled(_camOn);
+                // Update provider
+                final callProvider = context.read<CallStateProvider>();
+                callProvider.setCameraOn(_camOn);
                 setState(() {});
               },
             ),
@@ -305,6 +380,9 @@ class _CallScreenState extends State<CallScreen> {
               onTap: () async {
                 _speakerOn = !_speakerOn;
                 await Hardware.instance.setSpeakerphoneOn(_speakerOn);
+                // Update provider
+                final callProvider = context.read<CallStateProvider>();
+                callProvider.setSpeakerOn(_speakerOn);
                 setState(() {});
               },
             ),

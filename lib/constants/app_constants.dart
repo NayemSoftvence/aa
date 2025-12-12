@@ -52,5 +52,5 @@ const String kKeyIsExploring = 'exploring';
 //kKeyFCMToken
 const String kKeyFCMToken = 'firebase_token';
 //order statuses
-bool kKeyIsFromNotification = false;
+//bool kKeyIsFromNotification = false;
 String kKeycallId = '';
