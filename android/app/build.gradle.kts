@@ -32,9 +32,10 @@ android {
     defaultConfig {
         applicationId = "com.livekitCalling.app"
         minSdk = 24 // Update this to match your Flutter minSdkVersion
-        targetSdk = 36
-        versionCode = 1 // Update if needed
-        versionName = "1.0.0" // Update if needed
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+        multiDexEnabled = true
     }
 
     dependencies {

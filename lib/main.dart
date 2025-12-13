@@ -22,9 +22,7 @@ import 'providers/call_state_provider.dart';
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  print("[BackgroundHandler] Handling message: ${message.data}");
-  // We don't need full NotificationService init (which requests permissions), just handling logic
-  // But we might need to ensure CallKit is usable? Usually yes.
+
   await NotificationService.handleRemoteMessage(
     message,
     openedFromTray: false,

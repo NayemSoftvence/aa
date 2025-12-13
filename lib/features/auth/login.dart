@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
+import '../../helpers/notification_service.dart';
 import '../../helpers/social_auth.dart';
 import '../home/presentation/home.dart';
 
@@ -38,6 +39,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _onAuthSuccess(User user, String idToken) async {
     // Create/merge user profile in Firestore
+
     final users = FirebaseFirestore.instance.collection('users');
     await users.doc(user.uid).set({
       'uid': user.uid,
@@ -48,6 +50,9 @@ class _LoginScreenState extends State<LoginScreen> {
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+
+    // User logged in or restored session
+    NotificationService.syncFcmToken();
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

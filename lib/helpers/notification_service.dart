@@ -31,6 +31,10 @@ class NotificationService {
     log('[NotificationService] Provider current state: ${provider.state}');
   }
 
+  static Future<void> syncFcmToken() async {
+    await _syncTokenToStorageAndFirestore();
+  }
+
   static Future<void> initialize() async {
     // Request permission for iOS
 
@@ -300,17 +304,13 @@ class NotificationService {
       log(
         '[NotificationService] WARNING: CallStateProvider is null! Overlay will not show.',
       );
+      // Try to recover if provider is null (conceptually shouldn't happen if properly registered)
     } else {
       log('[NotificationService] CallStateProvider found, updating state...');
 
-      // CRITICAL FIX: If app was killed/background, state might be idle.
-      // We must hydrate the provider first.
+      // Hydrate if needed
       if (_callProvider!.state == CallState.idle ||
           _callProvider!.callId != callId) {
-        log(
-          '[NotificationService] Provider is idle/mismatch. Hydrating from CallKit event...',
-        );
-
         String? callerId;
         String? roomName;
 
@@ -330,42 +330,26 @@ class NotificationService {
       }
 
       _callProvider!.acceptCall();
-      log('[NotificationService] After acceptCall: ${_callProvider!.state}');
-
       _callProvider!.startCall();
-      log('[NotificationService] After startCall: ${_callProvider!.state}');
-      log(
-        '[NotificationService] isInCall: ${_callProvider!.isInCall}, isMinimized: ${_callProvider!.isMinimized}',
-      );
     }
 
-    // Notify the caller that call was accepted
-    try {
-      log(
-        '[NotificationService] Sending call-accepted notification to caller...',
-      );
-      await LivekitNetlifyApi.instance.notifyCallAccepted(callId);
-      log('[NotificationService] Caller notified successfully');
-    } catch (e) {
-      log('[NotificationService] Failed to notify caller: $e');
-    }
+    // REMOVED: notifyCallAccepted API call.
+    // relying on Firestore listener on the caller side.
   }
 
   static Future<void> declineOrEndCall(String callId) async {
     try {
       await FirebaseFirestore.instance.collection('calls').doc(callId).update({
-        'status': 'declined',
+        'status':
+            'declined', // or 'ended' depending on context, but declined is safe generic
         'endedAt': FieldValue.serverTimestamp(),
       });
     } catch (e) {
       log('decline update failed: $e');
     }
 
-    // New: Notify backend to send FCM to other party
-    // (This helps if receiver declines, to stop caller side ringing via FCM if listener lags or app is bg)
-    try {
-      await LivekitNetlifyApi.instance.notifyCallDeclined(callId);
-    } catch (_) {}
+    // REMOVED: notifyCallDeclined API call.
+    // relying on Firestore listener on the caller side.
 
     // Update provider
     _callProvider?.endCall();
