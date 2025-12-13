@@ -12,7 +12,6 @@ import 'package:flutter_callkit_incoming/entities/android_params.dart';
 import 'package:flutter_callkit_incoming/entities/ios_params.dart';
 import '../constants/app_constants.dart';
 import '../providers/call_state_provider.dart';
-import '../features/home/data/livekit_netlify_api.dart';
 import 'di.dart';
 
 class NotificationService {
@@ -126,6 +125,21 @@ class NotificationService {
         case Event.actionCallDecline:
         case Event.actionCallEnded:
           await declineOrEndCall(id);
+          break;
+        case Event.actionCallTimeout:
+          // Missed call (caller gave up or timed out)
+          await declineOrEndCall(id);
+          log('[NotificationService] Call missed/timed out: $id');
+          break;
+        case Event.actionCallToggleMute:
+          final isMuted = body['isMuted'] as bool? ?? false;
+          _callProvider?.setMuted(isMuted);
+          break;
+        case Event.actionCallToggleHold:
+          // LiveKit generic handling or custom
+          final isOnHold = body['isOnHold'] as bool? ?? false;
+          // You could add a setHold method to provider if needed
+          log('[NotificationService] Call toggled hold: $isOnHold');
           break;
         default:
           break;

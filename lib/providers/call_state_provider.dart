@@ -48,12 +48,13 @@ class CallStateProvider extends ChangeNotifier {
   bool get isMinimized => _isMinimized;
   bool get isIncoming => _isIncoming;
 
-  // Show call bar when active (ringing, accepted, or inCall) AND minimized
+  // Show call bar when active (ringing, accepted, or inCall)
+  // User Requested: "always a call bar below appbar in the home screen , reagadless minimize or not."
+  // So we remove the `_isMinimized` check here.
   bool get shouldShowCallBar =>
-      (_state == CallState.inCall ||
-          _state == CallState.accepted ||
-          _state == CallState.ringing) &&
-      _isMinimized;
+      _state == CallState.inCall ||
+      _state == CallState.accepted ||
+      _state == CallState.ringing;
 
   /// Called when an incoming call notification is received
   void handleIncomingCall({

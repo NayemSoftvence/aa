@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/call_state_provider.dart';
 import '../features/call/call_screen.dart';
 import '../helpers/notification_service.dart';
+import '../features/home/data/livekit_netlify_api.dart'; // import added
 
 /// Global overlay that shows CallScreen when a call is active and not minimized
 /// This wraps the entire app and listens to CallStateProvider
@@ -92,6 +93,10 @@ class CallScreenOverlay extends StatelessWidget {
                                   if (callId != null) {
                                     // Use the existing static method to clean up
                                     NotificationService.declineOrEndCall(
+                                      callId,
+                                    );
+                                    // CRITICAL: Force remote cleanup (stop ringing)
+                                    LivekitNetlifyApi.instance.notifyCallEnded(
                                       callId,
                                     );
                                   }

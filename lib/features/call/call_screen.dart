@@ -198,6 +198,9 @@ class _CallScreenState extends State<CallScreen> {
         'status': 'ended',
         'endedAt': FieldValue.serverTimestamp(),
       });
+
+      // CRITICAL: Notify other participant to stop ringing if they are in background key
+      await LivekitNetlifyApi.instance.notifyCallEnded(widget.callId);
       await FlutterCallkitIncoming.endCall(widget.callId);
 
       // Update provider
