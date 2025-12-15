@@ -1,17 +1,11 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
-import 'package:livekit_calling_app/features/home/presentation/home.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:livekit_client/livekit_client.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
-
-import 'package:flutter/scheduler.dart';
-import '../../constants/app_constants.dart';
 import '../../providers/call_state_provider.dart';
 import '../home/data/livekit_netlify_api.dart' show LivekitNetlifyApi;
 

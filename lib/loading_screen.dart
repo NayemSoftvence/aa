@@ -58,9 +58,6 @@ class _LoadingState extends State<Loading> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const WelcomeScreen();
-    }
     return appData.read(kKeyIsLoggedIn)
         ? const HomeScreen()
         : const LoginScreen();
