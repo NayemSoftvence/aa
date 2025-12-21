@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:livekit_calling_app/features/call/pop_call_dialouge.dart';
 import 'package:provider/provider.dart';
-import '../../common_widgets/show_call_screen.dart';
 import '../../providers/call_state_provider.dart';
 
 /// Shows incoming call as a bottom sheet that can be dragged to expand
@@ -160,9 +160,9 @@ class _IncomingCallBottomSheetState extends State<IncomingCallBottomSheet> {
 
         // Close bottom sheet
         Navigator.pop(context);
-
+        openPopCall(context, callProvider.callId!);
         // Navigate to call screen as modal
-        showCallScreen(context: context, callId: widget.callId);
+        // showCallScreen(context: context, callId: widget.callId);
       }
     } catch (e) {
       print('Error accepting call: $e');

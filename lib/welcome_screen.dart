@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'common_widgets/loading_indicators.dart';
-import 'constants/app_constants.dart';
 import 'gen/assets.gen.dart';
 import 'gen/colors.gen.dart';
 

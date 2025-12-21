@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -257,15 +259,14 @@ class _CallScreenState extends State<CallScreen> {
               const SizedBox(width: 8),
             ],
           ),
-          body:
-              room == null
-                  ? const Center(child: CircularProgressIndicator())
-                  : Column(
-                    children: [
-                      Expanded(child: _videoGrid(room)),
-                      _controlsBar(),
-                    ],
-                  ),
+          body: room == null
+              ? const Center(child: CircularProgressIndicator())
+              : Column(
+                  children: [
+                    Expanded(child: _videoGrid(room)),
+                    _controlsBar(),
+                  ],
+                ),
         ),
       ),
     );
@@ -311,16 +312,15 @@ class _CallScreenState extends State<CallScreen> {
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child:
-                track != null
-                    ? VideoTrackRenderer(track, fit: VideoViewFit.contain)
-                    : const Center(
-                      child: Icon(
-                        Icons.videocam_off,
-                        color: Colors.white54,
-                        size: 32,
-                      ),
+            child: track != null
+                ? VideoTrackRenderer(track, fit: VideoViewFit.contain)
+                : const Center(
+                    child: Icon(
+                      Icons.videocam_off,
+                      color: Colors.white54,
+                      size: 32,
                     ),
+                  ),
           ),
         );
       },

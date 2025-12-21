@@ -90,7 +90,7 @@ class UtillScreenMobile extends StatelessWidget {
               useMaterial3: false,
               scaffoldBackgroundColor: AppColors.cFFFFFF,
               appBarTheme: const AppBarTheme(
-                color: AppColors.cFFFFFF,
+                backgroundColor: AppColors.cFFFFFF,
                 elevation: 0,
               ),
             ),

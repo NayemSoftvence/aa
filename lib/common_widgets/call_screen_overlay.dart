@@ -32,8 +32,7 @@ class CallScreenOverlay extends StatelessWidget {
             final isRinging = callProvider.state == CallState.ringing;
             final isOutgoingRinging = isRinging && !callProvider.isIncoming;
 
-            final shouldShow =
-                (callProvider.isInCall || isOutgoingRinging) &&
+            final shouldShow = (callProvider.isInCall || isOutgoingRinging) &&
                 !callProvider.isMinimized &&
                 callProvider.callId != null;
 
@@ -49,7 +48,7 @@ class CallScreenOverlay extends StatelessWidget {
                   child: Scaffold(
                     backgroundColor: Colors.black,
                     body: SafeArea(
-                      child: Container(
+                      child: SizedBox(
                         width: double.infinity,
                         height: double.infinity,
                         child: Column(
