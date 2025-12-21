@@ -95,52 +95,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         .limit(5) // Fetch a few to find the valid one
         .snapshots()
         .listen((snap) {
-          if (snap.docs.isNotEmpty) {
-            // Find the most recent valid call
-            QueryDocumentSnapshot<Map<String, dynamic>>? targetDoc;
-            DateTime? latestTime;
+      if (snap.docs.isNotEmpty) {
+        // Find the most recent valid call
+        QueryDocumentSnapshot<Map<String, dynamic>>? targetDoc;
+        DateTime? latestTime;
 
-            for (var doc in snap.docs) {
-              final data = doc.data();
-              final ts = data['createdAt'] as Timestamp?;
-              if (ts == null) continue;
+        for (var doc in snap.docs) {
+          final data = doc.data();
+          final ts = data['createdAt'] as Timestamp?;
+          if (ts == null) continue;
 
-              final dt = ts.toDate();
-              // Ignore calls older than 6 hours
-              if (DateTime.now().difference(dt).inHours > 6) continue;
+          final dt = ts.toDate();
+          // Ignore calls older than 6 hours
+          if (DateTime.now().difference(dt).inHours > 6) continue;
 
-              if (latestTime == null || dt.isAfter(latestTime)) {
-                latestTime = dt;
-                targetDoc = doc;
-              }
-            }
-
-            if (targetDoc != null) {
-              final data = targetDoc.data();
-              final callId = targetDoc.id;
-
-              final callProvider = context.read<CallStateProvider>();
-              // Only restore if we aren't already in THAT call
-              if (callProvider.callId != callId || !callProvider.isInCall) {
-                print('[HomeScreen] Restoring active recent call: $callId');
-
-                final isMeCaller = data['callerId'] == me.uid;
-                final callerName = isMeCaller 
-                    ? (data['callerName'] as String? ?? 'Unknown')
-                    : (data['callerId'] as String? ?? 'Unknown');
-
-                callProvider.handleIncomingCall(
-                  callId: callId,
-                  callerId: callerName,
-                  roomName: data['roomName'] as String?,
-                  isIncoming: !isMeCaller,
-                );
-                callProvider.acceptCall();
-                callProvider.startCall();
-              }
-            }
+          if (latestTime == null || dt.isAfter(latestTime)) {
+            latestTime = dt;
+            targetDoc = doc;
           }
-        });
+        }
+
+        if (targetDoc != null) {
+          final data = targetDoc.data();
+          final callId = targetDoc.id;
+
+          final callProvider = context.read<CallStateProvider>();
+          // Only restore if we aren't already in THAT call
+          if (callProvider.callId != callId || !callProvider.isInCall) {
+            print('[HomeScreen] Restoring active recent call: $callId');
+
+            final isMeCaller = data['callerId'] == me.uid;
+            final callerName = isMeCaller
+                ? (data['callerName'] as String? ?? 'Unknown')
+                : (data['callerId'] as String? ?? 'Unknown');
+
+            callProvider.handleIncomingCall(
+              callId: callId,
+              callerId: callerName,
+              roomName: data['roomName'] as String?,
+              isIncoming: !isMeCaller,
+            );
+            callProvider.acceptCall();
+            callProvider.startCall();
+          }
+        }
+      }
+    });
   }
 
   @override
@@ -188,9 +188,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 children: [
                   Expanded(
                     child: TextField(
-                      onChanged:
-                          (v) =>
-                              setState(() => _search = v.trim().toLowerCase()),
+                      onChanged: (v) =>
+                          setState(() => _search = v.trim().toLowerCase()),
                       decoration: InputDecoration(
                         hintText: 'Search people',
                         prefixIcon: const Icon(Icons.search),
@@ -226,30 +225,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   // Filter: remove me, apply search and online toggle
                   final docs =
                       snap.data!.docs.where((d) => d.id != me.uid).where((d) {
-                          final data = d.data();
-                          if (_showOnlyOnline && (data['isOnline'] != true)) {
-                            return false;
-                          }
+                    final data = d.data();
+                    if (_showOnlyOnline && (data['isOnline'] != true)) {
+                      return false;
+                    }
 
-                          if (_search.isEmpty) return true;
-                          final name =
-                              (data['displayName'] ?? '')
-                                  .toString()
-                                  .toLowerCase();
-                          final email =
-                              (data['email'] ?? '').toString().toLowerCase();
-                          return name.contains(_search) ||
-                              email.contains(_search);
-                        }).toList()
+                    if (_search.isEmpty) return true;
+                    final name =
+                        (data['displayName'] ?? '').toString().toLowerCase();
+                    final email =
+                        (data['email'] ?? '').toString().toLowerCase();
+                    return name.contains(_search) || email.contains(_search);
+                  }).toList()
                         ..sort((a, b) {
-                          final an =
-                              (a.data()['displayName'] ?? '')
-                                  .toString()
-                                  .toLowerCase();
-                          final bn =
-                              (b.data()['displayName'] ?? '')
-                                  .toString()
-                                  .toLowerCase();
+                          final an = (a.data()['displayName'] ?? '')
+                              .toString()
+                              .toLowerCase();
+                          final bn = (b.data()['displayName'] ?? '')
+                              .toString()
+                              .toLowerCase();
                           return an.compareTo(bn);
                         });
 
@@ -277,8 +271,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         photoUrl: photo,
                         isOnline: online,
                         lastSeen: lastSeen?.toDate(),
-                        onCall:
-                            () => _startCall(calleeId: uid, calleeName: name),
+                        onCall: () =>
+                            _startCall(calleeId: uid, calleeName: name),
                       );
                     },
                   );

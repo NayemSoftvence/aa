@@ -1,6 +1,7 @@
 // ignore_for_file: use_build_context_synchronously
 
 import 'dart:async';
+import 'dart:developer';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -26,11 +27,11 @@ class _CallScreenState extends State<CallScreen> {
   EventsListener<RoomEvent>? _roomEvents;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _callSub;
 
-  LocalVideoTrack? _localVideo; // keep ref to flip camera
+  // LocalVideoTrack? _localVideo; // keep ref to flip camera
   bool _micOn = true;
   bool _camOn = false; // Default: audio-only
   bool _speakerOn = false; // Default: not on speaker
-  bool _frontCam = true;
+  // bool _frontCam = true;
 
   @override
   void initState() {
@@ -62,7 +63,7 @@ class _CallScreenState extends State<CallScreen> {
     _callSub = ref.snapshots().listen((snap) async {
       // Early return if widget is disposed - CHECK FIRST!
       if (!mounted) {
-        print('[CallScreen] Widget disposed, ignoring status update');
+        log('[CallScreen] Widget disposed, ignoring status update');
         return;
       }
 
@@ -78,7 +79,7 @@ class _CallScreenState extends State<CallScreen> {
 
         // Double-check mounted before any context operations
         if (!mounted) {
-          print('[CallScreen] Widget disposed during disconnect');
+          log('[CallScreen] Widget disposed during disconnect');
           return;
         }
 
@@ -88,7 +89,7 @@ class _CallScreenState extends State<CallScreen> {
           callProvider.endCall();
           // Overlay will hide automatically
         } catch (e) {
-          print('[CallScreen] Error updating provider: $e');
+          log('[CallScreen] Error updating provider: $e');
         }
       }
     });
@@ -108,7 +109,7 @@ class _CallScreenState extends State<CallScreen> {
         if (mounted) context.read<CallStateProvider>().endCall();
         return;
       }
-      
+
       // 2) Request camera (optional for audio-only calls)
       await Permission.camera.request();
 
@@ -188,10 +189,10 @@ class _CallScreenState extends State<CallScreen> {
         final callProvider = context.read<CallStateProvider>();
         callProvider.endCall();
       }
-      
+
       // 2) Disconnect LiveKit room
       await _room?.disconnect();
-      
+
       // 3) Update Firestore
       try {
         await _db.collection('calls').doc(widget.callId).update({
@@ -200,7 +201,7 @@ class _CallScreenState extends State<CallScreen> {
         });
       } catch (e) {
         // Log but don't fail if Firestore update fails
-        print('[CallScreen] Firestore update failed: $e');
+        log('[CallScreen] Firestore update failed: $e');
       }
 
       // 4) Notify other participant and clean up CallKit
@@ -208,10 +209,10 @@ class _CallScreenState extends State<CallScreen> {
         await LivekitNetlifyApi.instance.notifyCallEnded(widget.callId);
         await FlutterCallkitIncoming.endCall(widget.callId);
       } catch (e) {
-        print('[CallScreen] Cleanup failed: $e');
+        log('[CallScreen] Cleanup failed: $e');
       }
     } catch (e) {
-      print('[CallScreen] Hang-up error: $e');
+      log('[CallScreen] Hang-up error: $e');
       // Still try to end call via provider
       if (mounted) {
         context.read<CallStateProvider>().endCall();
@@ -252,18 +253,18 @@ class _CallScreenState extends State<CallScreen> {
             ),
             actions: [
               // Add minimize action button for clarity
-              TextButton.icon(
-                onPressed: () {
-                  final callProvider = context.read<CallStateProvider>();
-                  callProvider.minimize();
-                },
-                icon: const Icon(Icons.minimize, color: Colors.white),
-                label: const Text(
-                  'Minimize',
-                  style: TextStyle(color: Colors.white),
-                ),
-              ),
-              const SizedBox(width: 8),
+              // TextButton.icon(
+              //   onPressed: () {
+              //     final callProvider = context.read<CallStateProvider>();
+              //     callProvider.minimize();
+              //   },
+              //   icon: const Icon(Icons.minimize, color: Colors.white),
+              //   label: const Text(
+              //     'Minimize',
+              //     style: TextStyle(color: Colors.white),
+              //   ),
+              // ),
+              // const SizedBox(width: 8),
             ],
           ),
           body: room == null
@@ -369,7 +370,7 @@ class _CallScreenState extends State<CallScreen> {
                   callProvider.setSpeakerOn(_speakerOn);
                   setState(() {});
                 } catch (e) {
-                  print('[CallScreen] Speaker toggle failed: $e');
+                  log('[CallScreen] Speaker toggle failed: $e');
                 }
               },
             ),

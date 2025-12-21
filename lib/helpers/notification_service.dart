@@ -58,10 +58,10 @@ class NotificationService {
 
     const DarwinInitializationSettings iosSettings =
         DarwinInitializationSettings(
-          requestAlertPermission: true,
-          requestBadgePermission: true,
-          requestSoundPermission: true,
-        );
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
 
     const InitializationSettings initSettings = InitializationSettings(
       android: androidSettings,
@@ -76,8 +76,7 @@ class NotificationService {
     );
     await _localNotificationsPlugin
         .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >()
+            AndroidFlutterLocalNotificationsPlugin>()
         ?.requestFullScreenIntentPermission();
 
     final canFullScreen = await FlutterCallkitIncoming.canUseFullScreenIntent();
@@ -86,10 +85,10 @@ class NotificationService {
     }
     await FirebaseMessaging.instance
         .setForegroundNotificationPresentationOptions(
-          alert: true,
-          badge: true,
-          sound: true,
-        );
+      alert: true,
+      badge: true,
+      sound: true,
+    );
 
     // Handle foreground messages
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
@@ -255,15 +254,23 @@ class NotificationService {
     String callerName = 'Unknown';
     try {
       // First try to get from calls document (has callerName stored)
-      final callDoc = await FirebaseFirestore.instance.collection('calls').doc(callId).get();
+      final callDoc = await FirebaseFirestore.instance
+          .collection('calls')
+          .doc(callId)
+          .get();
       if (callDoc.exists) {
         callerName = callDoc.data()?['callerName'] as String? ?? 'Unknown';
       }
       // Fallback: fetch from users collection
       if (callerName == 'Unknown') {
-        final userDoc = await FirebaseFirestore.instance.collection('users').doc(callerId).get();
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(callerId)
+            .get();
         if (userDoc.exists) {
-          callerName = userDoc.data()?['displayName'] as String? ?? userDoc.data()?['name'] as String? ?? 'Unknown';
+          callerName = userDoc.data()?['displayName'] as String? ??
+              userDoc.data()?['name'] as String? ??
+              'Unknown';
         }
       }
     } catch (e) {
@@ -431,11 +438,11 @@ class NotificationService {
   }) async {
     const AndroidNotificationDetails androidDetails =
         AndroidNotificationDetails(
-          'main_channel', // Channel ID
-          'Main Channel', // Channel name
-          importance: Importance.high,
-          priority: Priority.high,
-        );
+      'main_channel', // Channel ID
+      'Main Channel', // Channel name
+      importance: Importance.high,
+      priority: Priority.high,
+    );
 
     const DarwinNotificationDetails iosDetails = DarwinNotificationDetails();
 
