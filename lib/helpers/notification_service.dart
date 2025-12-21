@@ -251,20 +251,39 @@ class NotificationService {
     final roomName = data['roomName'] as String? ?? '';
     kKeycallId = callId;
 
-    log('[NotificationService] Showing incoming call: $callId from $callerId');
+    // Fetch caller's display name from Firestore calls doc (preferred) or users collection
+    String callerName = 'Unknown';
+    try {
+      // First try to get from calls document (has callerName stored)
+      final callDoc = await FirebaseFirestore.instance.collection('calls').doc(callId).get();
+      if (callDoc.exists) {
+        callerName = callDoc.data()?['callerName'] as String? ?? 'Unknown';
+      }
+      // Fallback: fetch from users collection
+      if (callerName == 'Unknown') {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(callerId).get();
+        if (userDoc.exists) {
+          callerName = userDoc.data()?['displayName'] as String? ?? userDoc.data()?['name'] as String? ?? 'Unknown';
+        }
+      }
+    } catch (e) {
+      log('[NotificationService] Failed to fetch caller name: $e');
+    }
+
+    log('[NotificationService] Showing incoming call: $callId from $callerId ($callerName)');
 
     await FlutterCallkitIncoming.endAllCalls();
 
     final params = CallKitParams(
       id: callId,
-      nameCaller: callerId,
+      nameCaller: callerName,
       appName: 'LiveCall',
-      type: 1, // 0=audio, 1=video
-      extra: {'callId': callId, 'roomName': roomName},
+      type: 0, // 0=audio, 1=video - default to audio
+      extra: {'callId': callId, 'roomName': roomName, 'callerId': callerId},
       android: const AndroidParams(
         isCustomNotification: true,
         isShowLogo: false,
-        ringtonePath: 'default', // Android will play the device’s ringtone
+        ringtonePath: 'default',
         backgroundColor: '#0A84FF',
         actionColor: '#4CAF50',
         isShowCallID: false,
@@ -272,8 +291,8 @@ class NotificationService {
         missedCallNotificationChannelName: 'Missed Call',
       ),
       ios: const IOSParams(
-        supportsVideo: true,
-        audioSessionMode: 'videoChat',
+        supportsVideo: false,
+        audioSessionMode: 'voiceChat',
         audioSessionActive: true,
         audioSessionPreferredSampleRate: 44100.0,
         audioSessionPreferredIOBufferDuration: 0.005,
@@ -287,10 +306,10 @@ class NotificationService {
       log('[NotificationService] Error showing CallKit: $e');
     }
 
-    // Update provider if available
+    // Update provider if available (use the fetched callerName)
     _callProvider?.handleIncomingCall(
       callId: callId,
-      callerId: callerId,
+      callerId: callerName,
       roomName: roomName,
       isIncoming: true,
     );

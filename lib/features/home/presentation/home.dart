@@ -125,11 +125,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 print('[HomeScreen] Restoring active recent call: $callId');
 
                 final isMeCaller = data['callerId'] == me.uid;
-                final caller = data['callerId'] as String? ?? 'Unknown';
+                final callerName = isMeCaller 
+                    ? (data['callerName'] as String? ?? 'Unknown')
+                    : (data['callerId'] as String? ?? 'Unknown');
 
                 callProvider.handleIncomingCall(
                   callId: callId,
-                  callerId: caller,
+                  callerId: callerName,
                   roomName: data['roomName'] as String?,
                   isIncoming: !isMeCaller,
                 );
@@ -301,6 +303,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       await callRef.set({
         'callerId': me.uid,
+        'callerName': calleeName, // Store the callee name (who we're calling)
         'calleeId': calleeId,
         'participants': [me.uid, calleeId], // useful for queries later
         'roomName': roomName,

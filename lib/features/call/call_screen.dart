@@ -28,8 +28,8 @@ class _CallScreenState extends State<CallScreen> {
 
   LocalVideoTrack? _localVideo; // keep ref to flip camera
   bool _micOn = true;
-  bool _camOn = true;
-  bool _speakerOn = true;
+  bool _camOn = false; // Default: audio-only
+  bool _speakerOn = false; // Default: not on speaker
   bool _frontCam = true;
 
   @override
@@ -96,29 +96,28 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _join() async {
     try {
-      // 1) Permissions
-      final statuses =
-          await [Permission.microphone, Permission.camera].request();
-      if (statuses[Permission.microphone] != PermissionStatus.granted ||
-          statuses[Permission.camera] != PermissionStatus.granted) {
+      // 1) Request microphone (mandatory for audio call)
+      final micStatus = await Permission.microphone.request();
+      if (micStatus != PermissionStatus.granted) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Camera/Microphone permission required'),
+            content: Text('Microphone permission required for call'),
           ),
         );
-        // Navigator.pop(context); // Don't pop, overlay will stay or should be manually minimized/closed via provider logic if we want to force close
-        // Better: trigger endCall on provider
         if (mounted) context.read<CallStateProvider>().endCall();
         return;
       }
+      
+      // 2) Request camera (optional for audio-only calls)
+      await Permission.camera.request();
 
-      // 2) Get LiveKit token from Netlify (Dio inside)
+      // 3) Get LiveKit token from Netlify (Dio inside)
       final cred = await LivekitNetlifyApi.instance.createToken(widget.callId);
       final url = cred['url'] as String;
       final token = cred['token'] as String;
 
-      // 3) Connect to LiveKit
+      // 4) Connect to LiveKit
       final room = Room();
       _room = room;
       _roomEvents = room.createListener();
@@ -130,22 +129,18 @@ class _CallScreenState extends State<CallScreen> {
         roomOptions: const RoomOptions(adaptiveStream: true, dynacast: true),
       );
 
-      // 4) Publish local tracks
-      final video = await LocalVideoTrack.createCameraTrack(
-        const CameraCaptureOptions(cameraPosition: CameraPosition.front),
-      );
+      // 5) Publish audio track (always)
       final audio = await LocalAudioTrack.create();
-
-      _localVideo = video;
-      _frontCam = true;
-
-      await room.localParticipant?.publishVideoTrack(video);
       await room.localParticipant?.publishAudioTrack(audio);
+      _micOn = true;
 
-      // 5) Keep screen on, route to speaker
+      // 6) Publish video only if user enables it later (optional)
+      // _camOn is false by default, so no video track is published initially
+
+      // 7) Keep screen on, use earpiece by default (not speaker)
       await WakelockPlus.enable();
-      await Hardware.instance.setSpeakerphoneOn(true);
-      _speakerOn = true;
+      await Hardware.instance.setSpeakerphoneOn(false);
+      _speakerOn = false;
 
       // 6) Room events: rerender when participants/tracks change, auto-close on disconnect
       _roomEvents?.on<RoomDisconnectedEvent>((_) {
@@ -188,26 +183,38 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _hangUp() async {
     try {
-      await _room?.disconnect();
-    } finally {
-      await _db.collection('calls').doc(widget.callId).update({
-        'status': 'ended',
-        'endedAt': FieldValue.serverTimestamp(),
-      });
-
-      // CRITICAL: Notify other participant to stop ringing if they are in background key
-      await LivekitNetlifyApi.instance.notifyCallEnded(widget.callId);
-      await FlutterCallkitIncoming.endCall(widget.callId);
-
-      // Update provider
+      // 1) Immediately set provider state to prevent re-rendering
       if (mounted) {
         final callProvider = context.read<CallStateProvider>();
         callProvider.endCall();
       }
+      
+      // 2) Disconnect LiveKit room
+      await _room?.disconnect();
+      
+      // 3) Update Firestore
+      try {
+        await _db.collection('calls').doc(widget.callId).update({
+          'status': 'ended',
+          'endedAt': FieldValue.serverTimestamp(),
+        });
+      } catch (e) {
+        // Log but don't fail if Firestore update fails
+        print('[CallScreen] Firestore update failed: $e');
+      }
 
+      // 4) Notify other participant and clean up CallKit
+      try {
+        await LivekitNetlifyApi.instance.notifyCallEnded(widget.callId);
+        await FlutterCallkitIncoming.endCall(widget.callId);
+      } catch (e) {
+        print('[CallScreen] Cleanup failed: $e');
+      }
+    } catch (e) {
+      print('[CallScreen] Hang-up error: $e');
+      // Still try to end call via provider
       if (mounted) {
-        // Just rely on provider state change to hide the overlay.
-        // No need to pop navigator as we are in an overlay now.
+        context.read<CallStateProvider>().endCall();
       }
     }
   }
@@ -272,17 +279,8 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
-  // Find first available video track for a participant
-  VideoTrack? _firstVideoTrack(Participant p) {
-    // publications is an Iterable of VideoTrackPublication
-    for (final pub in p.videoTrackPublications) {
-      final track = pub.track;
-      if (track is VideoTrack) return track;
-    }
-    return null;
-  }
-
   Widget _videoGrid(Room room) {
+    // For audio-only calls, show a simple UI with participant info
     final participants = <Participant>[
       if (room.localParticipant != null) room.localParticipant!,
       ...room.remoteParticipants.values,
@@ -294,36 +292,41 @@ class _CallScreenState extends State<CallScreen> {
       );
     }
 
-    return GridView.builder(
-      itemCount: participants.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 9 / 16,
-      ),
-      itemBuilder: (context, index) {
-        final p = participants[index];
-        final track = _firstVideoTrack(p);
-
-        return Container(
-          margin: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade900,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: track != null
-                ? VideoTrackRenderer(track, fit: VideoViewFit.contain)
-                : const Center(
-                    child: Icon(
-                      Icons.videocam_off,
-                      color: Colors.white54,
-                      size: 32,
-                    ),
+    // Audio-only layout: show participant info in a simple list
+    return Container(
+      color: Colors.black,
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: participants.map((p) {
+          final isLocal = p == room.localParticipant;
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              children: [
+                CircleAvatar(
+                  radius: 40,
+                  backgroundColor: Colors.grey.shade700,
+                  child: Icon(
+                    isLocal ? Icons.person : Icons.person_outline,
+                    size: 40,
+                    color: Colors.white,
                   ),
-          ),
-        );
-      },
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  isLocal ? 'You' : 'Caller',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 
@@ -349,38 +352,25 @@ class _CallScreenState extends State<CallScreen> {
             _roundBtn(
               icon: _camOn ? Icons.videocam : Icons.videocam_off,
               onTap: () async {
-                _camOn = !_camOn;
-                await _room?.localParticipant?.setCameraEnabled(_camOn);
-                // Update provider
-                final callProvider = context.read<CallStateProvider>();
-                callProvider.setCameraOn(_camOn);
-                setState(() {});
-              },
-            ),
-            _roundBtn(
-              icon: Icons.cameraswitch,
-              onTap: () async {
-                if (_localVideo == null) return;
-                _frontCam = !_frontCam;
-                try {
-                  await _localVideo!.setCameraPosition(
-                    _frontCam ? CameraPosition.front : CameraPosition.back,
-                  );
-                } catch (_) {
-                  // best-effort; ignore if device doesn't support it
-                }
-                setState(() {});
+                // TODO: Video on/off toggling can be implemented later if needed
+                // For now, audio-only calls are the default
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Video call coming soon')),
+                );
               },
             ),
             _roundBtn(
               icon: _speakerOn ? Icons.volume_up : Icons.hearing,
               onTap: () async {
                 _speakerOn = !_speakerOn;
-                await Hardware.instance.setSpeakerphoneOn(_speakerOn);
-                // Update provider
-                final callProvider = context.read<CallStateProvider>();
-                callProvider.setSpeakerOn(_speakerOn);
-                setState(() {});
+                try {
+                  await Hardware.instance.setSpeakerphoneOn(_speakerOn);
+                  final callProvider = context.read<CallStateProvider>();
+                  callProvider.setSpeakerOn(_speakerOn);
+                  setState(() {});
+                } catch (e) {
+                  print('[CallScreen] Speaker toggle failed: $e');
+                }
               },
             ),
             _roundBtn(icon: Icons.call_end, bg: Colors.red, onTap: _hangUp),
