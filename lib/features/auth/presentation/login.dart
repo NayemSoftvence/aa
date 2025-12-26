@@ -5,9 +5,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
-import '../../helpers/notification_service.dart';
-import '../../helpers/social_auth.dart';
-import '../home/presentation/home.dart';
+import '../../../helpers/notification_service.dart';
+import '../../../helpers/social_auth.dart';
+import '../../home/presentation/home.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -52,7 +52,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }, SetOptions(merge: true));
 
     // User logged in or restored session
-    NotificationService.syncFcmToken();
+    NotificationService.syncTokenToStorageAndFirestore();
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -248,7 +248,7 @@ class _LoginScreenState extends State<LoginScreen> {
           // Loading overlay
           // if (_loading)
           //   Container(
-          //     color: Colors.black.withOpacity(0.15),
+          //     color: Colors.black.w  ithOpacity(0.15),
           //     child: const Center(child: CircularProgressIndicator()),
           //   ),
         ],

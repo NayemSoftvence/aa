@@ -1,5 +1,6 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -8,6 +9,7 @@ import 'package:livekit_calling_app/loading_screen.dart';
 import 'constants/custome_theme.dart';
 import 'gen/colors.gen.dart';
 import 'helpers/all_routes.dart';
+import 'helpers/call_manager.dart';
 import 'helpers/di.dart';
 import 'helpers/helper_methods.dart';
 import 'helpers/navigation_service.dart';
@@ -19,10 +21,11 @@ import 'firebase_options.dart';
 import 'common_widgets/call_screen_overlay.dart';
 import 'providers/call_state_provider.dart';
 
+/// Background message handler - must be top-level function
+
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
   await NotificationService.handleRemoteMessage(
     message,
     openedFromTray: false,
@@ -35,19 +38,52 @@ void main() async {
 
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
   await GetStorage.init();
   diSetup();
   DioSingleton.instance.create();
+
+  final callProvider = CallStateProvider();
+
+  CallManager.instance.registerProvider(callProvider);
+  NotificationService.registerCallProvider(callProvider);
   await NotificationService.initialize();
 
-  // Create CallStateProvider instance and register it immediately
-  // This ensures it's available for CallKit events that may fire early
-  final callProvider = CallStateProvider();
-  NotificationService.registerCallProvider(callProvider);
+  // Only restore ALREADY accepted calls
+  await CallManager.instance.restoreActiveCall();
 
   runApp(
-    ChangeNotifierProvider.value(value: callProvider, child: const MyApp()),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: callProvider),
+      ],
+      child: const MyApp(),
+    ),
   );
+}
+
+Future<void> _checkPendingCalls() async {
+  try {
+    // First check if there's an accepted call in CallKit
+    final activeCalls = await FlutterCallkitIncoming.activeCalls();
+    if (activeCalls is List && activeCalls.isNotEmpty) {
+      for (final call in activeCalls) {
+        final callId = call['id'] as String?;
+        final isAccepted = call['isAccepted'] as bool? ?? false;
+
+        if (callId != null && isAccepted) {
+          // User accepted while app was killed - restore and connect
+          await CallManager.instance.restoreActiveCall();
+          return;
+        }
+      }
+    }
+
+    // Check for any ongoing calls in Firestore
+    await CallManager.instance.restoreActiveCall();
+  } catch (e) {
+    debugPrint('Error checking pending calls: $e');
+  }
 }
 
 class MyApp extends StatelessWidget {

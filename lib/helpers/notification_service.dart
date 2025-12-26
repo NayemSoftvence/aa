@@ -1,425 +1,359 @@
 import 'dart:async';
 import 'dart:developer';
-import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter_callkit_incoming/entities/call_event.dart';
+import 'package:flutter_callkit_incoming/entities/entities.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter_callkit_incoming/entities/call_kit_params.dart';
-import 'package:flutter_callkit_incoming/entities/android_params.dart';
-import 'package:flutter_callkit_incoming/entities/ios_params.dart';
-import '../constants/app_constants.dart';
+
+import '../constants/call_constants.dart';
+import '../features/call/data/call_repository.dart';
+import '../features/call/model/call_model.dart';
 import '../providers/call_state_provider.dart';
+import 'call_manager.dart';
 import 'di.dart';
 
 class NotificationService {
-  NotificationService._();
-  static final FirebaseMessaging _messaging = FirebaseMessaging.instance;
-  static final FlutterLocalNotificationsPlugin _localNotificationsPlugin =
-      FlutterLocalNotificationsPlugin();
-
-  static StreamSubscription? _ckSub;
   static CallStateProvider? _callProvider;
+  static bool _isInitialized = false;
+  static StreamSubscription? _callkitSubscription;
 
-  /// Register CallStateProvider for state synchronization
-  static void registerCallProvider(CallStateProvider provider) {
-    _callProvider = provider;
-    log('[NotificationService] CallStateProvider registered successfully');
-    log('[NotificationService] Provider current state: ${provider.state}');
+  // Deduplication - very important!
+  static final Set<String> _processedMessageIds = {};
+  static final Set<String> _acceptingCallIds =
+      {}; // Track which calls are being accepted
+  static String? _lastIncomingCallId;
+
+  static void _log(String msg) {
+    final ts = DateTime.now().toIso8601String();
+    log('[$ts][NotificationService] $msg');
+    print('[$ts][NotificationService] $msg');
   }
 
-  static Future<void> syncFcmToken() async {
-    await _syncTokenToStorageAndFirestore();
+  static void registerCallProvider(CallStateProvider provider) {
+    _callProvider = provider;
+    _log('Provider registered');
   }
 
   static Future<void> initialize() async {
-    // Request permission for iOS
+    if (_isInitialized) return;
+    _log('Initializing...');
 
-    NotificationSettings settings = await _messaging.requestPermission(
+    await FirebaseMessaging.instance.requestPermission(
       alert: true,
       badge: true,
       sound: true,
     );
 
-    if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-      log("User granted permission");
-    } else if (settings.authorizationStatus ==
-        AuthorizationStatus.provisional) {
-      log("User granted provisional permission");
-    } else {
-      log("User denied permission");
+    final token = await FirebaseMessaging.instance.getToken();
+    _log('FCM Token: $token');
+
+    FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+    FirebaseMessaging.onMessageOpenedApp.listen(
+        (m) => handleRemoteMessage(m, openedFromTray: true, coldStart: false));
+
+    final initialMsg = await FirebaseMessaging.instance.getInitialMessage();
+    if (initialMsg != null)
+      handleRemoteMessage(initialMsg, openedFromTray: true, coldStart: true);
+
+    _setupCallKitListeners();
+    await FlutterCallkitIncoming.requestFullIntentPermission();
+
+    _isInitialized = true;
+    _log('Initialized');
+  }
+
+  static void _handleForegroundMessage(RemoteMessage message) {
+    final msgId = message.messageId ??
+        '${message.data['callId']}_${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
+
+    // Strict deduplication
+    if (_processedMessageIds.contains(msgId)) {
+      _log('Duplicate FCM ignored: $msgId');
+      return;
     }
+    _processedMessageIds.add(msgId);
+    if (_processedMessageIds.length > 20)
+      _processedMessageIds.remove(_processedMessageIds.first);
 
-    // Initialize local notifications
-    const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-
-    const DarwinInitializationSettings iosSettings =
-        DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
-    );
-
-    const InitializationSettings initSettings = InitializationSettings(
-      android: androidSettings,
-      iOS: iosSettings,
-    );
-
-    await _localNotificationsPlugin.initialize(
-      initSettings,
-      onDidReceiveNotificationResponse: (NotificationResponse response) {
-        log("Notification clicked: ${response.payload}");
-      },
-    );
-    await _localNotificationsPlugin
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.requestFullScreenIntentPermission();
-
-    final canFullScreen = await FlutterCallkitIncoming.canUseFullScreenIntent();
-    if (canFullScreen == false) {
-      await FlutterCallkitIncoming.requestFullIntentPermission();
-    }
-    await FirebaseMessaging.instance
-        .setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-
-    // Handle foreground messages
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-      await handleRemoteMessage(message, inForeground: true);
-    });
-
-    // Handle messages when the app is opened from a terminated state
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
-      await handleRemoteMessage(message, openedFromTray: true);
-    });
-
-    final initial = await _messaging.getInitialMessage();
-    if (initial != null) {
-      await handleRemoteMessage(initial, openedFromTray: true, coldStart: true);
-    }
-
-    await _syncTokenToStorageAndFirestore();
-    _messaging.onTokenRefresh.listen((t) async {
-      await _syncTokenToStorageAndFirestore(tokenOverride: t);
-    });
-
-    _ckSub?.cancel();
-    _ckSub = FlutterCallkitIncoming.onEvent.listen((event) async {
-      if (event == null) return;
-      final action = event.event;
-      final body = event.body ?? {};
-      final id = (body['id'] ?? body['extra']?['callId'] ?? '') as String;
-
-      switch (action) {
-        case Event.actionCallAccept:
-          await _acceptCall(id, body: body);
-          break;
-        case Event.actionCallDecline:
-        case Event.actionCallEnded:
-          await declineOrEndCall(id);
-          break;
-        case Event.actionCallTimeout:
-          // Missed call (caller gave up or timed out)
-          await declineOrEndCall(id);
-          log('[NotificationService] Call missed/timed out: $id');
-          break;
-        case Event.actionCallToggleMute:
-          final isMuted = body['isMuted'] as bool? ?? false;
-          _callProvider?.setMuted(isMuted);
-          break;
-        case Event.actionCallToggleHold:
-          // LiveKit generic handling or custom
-          final isOnHold = body['isOnHold'] as bool? ?? false;
-          // You could add a setHold method to provider if needed
-          log('[NotificationService] Call toggled hold: $isOnHold');
-          break;
-        default:
-          break;
-      }
-    });
-
-    await getToken();
+    _log('FCM: $msgId');
+    handleRemoteMessage(message, openedFromTray: false, coldStart: false);
   }
 
   static Future<void> handleRemoteMessage(
     RemoteMessage message, {
-    bool inForeground = false,
-    bool openedFromTray = false,
-    bool coldStart = false,
+    required bool openedFromTray,
+    required bool coldStart,
   }) async {
     final data = message.data;
-    final type = data['type'];
-    print(
-      '[NotificationService] REMOTE MSG: $type | fg:$inForeground | bg:$openedFromTray',
-    );
-    log(
-      'FCM message: type=$type, fg=$inForeground, opened=$openedFromTray, cold=$coldStart, data=$data',
-    );
+    final type = data['type'] as String?;
 
-    // Always use CallKit for incoming calls (no foreground popup)
-    if (type == 'incoming_call') {
-      await _showIncomingCall(data);
-    } else if (type == 'call_ended' || type == 'call_declined') {
-      log(
-        '[NotificationService] Processing call termination: $type, data: $data',
-      );
-
-      final cid = (data['callId'] ?? data['extra']?['callId']) as String?;
-
-      print(
-        '[NotificationService] Termination signal received. Killing all calls...',
-      );
-      try {
-        if (cid != null) {
-          await FlutterCallkitIncoming.endCall(cid);
-          await Future.delayed(const Duration(milliseconds: 300));
-        }
-
-        // Paranoid Check: Get all active calls and kill 'em individually
-        final calls = await FlutterCallkitIncoming.activeCalls();
-        if (calls is List) {
-          for (var c in calls) {
-            final id = c['id'] as String?;
-            if (id != null) {
-              print('[NotificationService] Force killing lingering call: $id');
-              await FlutterCallkitIncoming.endCall(id);
-            }
-          }
-        }
-
-        // Force kill multiple times for stubborn devices (Android background)
-        await FlutterCallkitIncoming.endAllCalls();
-        await Future.delayed(const Duration(milliseconds: 200));
-        await FlutterCallkitIncoming.endAllCalls();
-
-        _callProvider?.endCall();
-      } catch (e) {
-        print('[NotificationService] Error in termination logic: $e');
-      }
-    } else if (type == 'call_accepted') {
-      log(
-        '[NotificationService] Call accepted by receiver. Triggering CallScreen...',
-      );
-
-      final callId = data['callId'] as String?;
-      final roomName = data['roomName'] as String?;
-
-      if (callId != null && _callProvider != null) {
-        // We are the caller, so we need to set the callId and start the call
-        // 1. Manually set incoming call info (even though it's outgoing, we need the ID)
-        _callProvider!.handleIncomingCall(
-          callId: callId,
-          callerId:
-              data['calleeId'] as String?, // Can be useful to show who accepted
-          roomName: roomName,
-          isIncoming:
-              false, // Wait, if call accepted, we are the CALLER. So isIncoming=false. This logic was for updating provider if we started call.
-        );
-
-        // 2. Immediately accept and start to transition to inCall state
-        _callProvider!.acceptCall();
-        _callProvider!.startCall();
-
-        log(
-          '[NotificationService] CallStateProvider updated to inCall for accepted call $callId',
-        );
-      } else {
-        log(
-          '[NotificationService] WARNING: Cannot handle call_accepted - callId: $callId, provider: $_callProvider',
-        );
-      }
+    switch (type) {
+      case 'incoming_call':
+        await _handleIncomingCallNotification(data);
+        break;
+      case 'call_ended':
+        await _handleCallEndedNotification(data);
+        break;
+      case 'call_accepted':
+        _log('Call accepted notification (Firestore handles)');
+        break;
+      case 'call_declined':
+        await _handleCallDeclinedNotification(data);
+        break;
     }
   }
 
-  static Future<void> handleRemoteMessageBackground(
-    RemoteMessage message,
-  ) async {
-    await handleRemoteMessage(message);
-  }
+  static Future<void> _handleIncomingCallNotification(
+      Map<String, dynamic> data) async {
+    final callId = data['callId'] as String?;
+    if (callId == null) return;
 
-  static Future<void> _showIncomingCall(Map<String, dynamic> data) async {
-    final callId = data['callId'] as String;
-    final callerId = data['callerId'] as String? ?? 'Unknown';
-    final roomName = data['roomName'] as String? ?? '';
-    kKeycallId = callId;
-
-    // Fetch caller's display name from Firestore calls doc (preferred) or users collection
-    String callerName = 'Unknown';
-    try {
-      // First try to get from calls document (has callerName stored)
-      final callDoc = await FirebaseFirestore.instance
-          .collection('calls')
-          .doc(callId)
-          .get();
-      if (callDoc.exists) {
-        callerName = callDoc.data()?['callerName'] as String? ?? 'Unknown';
-      }
-      // Fallback: fetch from users collection
-      if (callerName == 'Unknown') {
-        final userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(callerId)
-            .get();
-        if (userDoc.exists) {
-          callerName = userDoc.data()?['displayName'] as String? ??
-              userDoc.data()?['name'] as String? ??
-              'Unknown';
-        }
-      }
-    } catch (e) {
-      log('[NotificationService] Failed to fetch caller name: $e');
+    // Prevent duplicate incoming call setup
+    if (_lastIncomingCallId == callId) {
+      _log('Duplicate incoming call ignored: $callId');
+      return;
     }
+    _lastIncomingCallId = callId;
 
-    log('[NotificationService] Showing incoming call: $callId from $callerId ($callerName)');
+    final callerName = data['callerName'] as String? ?? 'Unknown';
+    final callerPhoto = data['callerPhoto'] as String?;
+    final callerId = data['callerId'] as String?;
+    final roomName = data['roomName'] as String?;
+    final callType = data['callType'] as String? ?? 'audio';
 
-    await FlutterCallkitIncoming.endAllCalls();
+    _log('Incoming: $callId from $callerName');
 
     final params = CallKitParams(
       id: callId,
       nameCaller: callerName,
       appName: 'LiveCall',
-      type: 0, // 0=audio, 1=video - default to audio
-      extra: {'callId': callId, 'roomName': roomName, 'callerId': callerId},
+      avatar: callerPhoto,
+      handle: callerName,
+      type: callType == 'video' ? 1 : 0,
+      textAccept: 'Accept',
+      textDecline: 'Decline',
+      duration: CallTimeouts.ringTimeout * 1000,
+      extra: {
+        'callId': callId,
+        'callerId': callerId,
+        'roomName': roomName,
+        'callerName': callerName
+      },
       android: const AndroidParams(
         isCustomNotification: true,
-        isShowLogo: false,
-        ringtonePath: 'default',
-        backgroundColor: '#0A84FF',
+        ringtonePath: 'system_ringtone_default',
+        backgroundColor: '#0955fa',
         actionColor: '#4CAF50',
-        isShowCallID: false,
+        textColor: '#ffffff',
         incomingCallNotificationChannelName: 'Incoming Call',
         missedCallNotificationChannelName: 'Missed Call',
       ),
       ios: const IOSParams(
-        supportsVideo: false,
+        iconName: 'CallKitLogo',
+        handleType: 'generic',
+        supportsVideo: true,
         audioSessionMode: 'voiceChat',
         audioSessionActive: true,
-        audioSessionPreferredSampleRate: 44100.0,
-        audioSessionPreferredIOBufferDuration: 0.005,
+        ringtonePath: 'system_ringtone_default',
       ),
     );
 
-    try {
-      await FlutterCallkitIncoming.showCallkitIncoming(params);
-      log('[NotificationService] CallKit notification shown successfully');
-    } catch (e) {
-      log('[NotificationService] Error showing CallKit: $e');
+    await FlutterCallkitIncoming.showCallkitIncoming(params);
+    _log('CallKit shown');
+
+    if (CallManager.instance.isReady) {
+      final call = CallModel(
+        id: callId,
+        callerId: callerId ?? '',
+        calleeId: '',
+        callerName: callerName,
+        calleeName: '',
+        callerPhoto: callerPhoto,
+        roomName: roomName ?? '',
+        status: CallStatus.ringing,
+        type: callType == 'video' ? CallType.video : CallType.audio,
+        participants: [],
+      );
+      await CallManager.instance.handleIncomingCall(call);
     }
-
-    // Update provider if available (use the fetched callerName)
-    _callProvider?.handleIncomingCall(
-      callId: callId,
-      callerId: callerName,
-      roomName: roomName,
-      isIncoming: true,
-    );
-
-    log('[NotificationService] Provider updated with incoming call');
   }
 
-  static Future<void> _acceptCall(
-    String callId, {
-    Map<String, dynamic>? body,
-  }) async {
-    log('[NotificationService] _acceptCall called with callId: $callId');
-    try {
-      await FirebaseFirestore.instance.collection('calls').doc(callId).update({
-        'status': 'accepted',
-        'acceptedAt': FieldValue.serverTimestamp(),
-      });
-      log('[NotificationService] Firestore updated with accepted status');
-    } catch (e) {
-      log('[NotificationService] Firestore accept update failed: $e');
+  static Future<void> _handleCallEndedNotification(
+      Map<String, dynamic> data) async {
+    final callId = data['callId'] as String?;
+    if (callId == null) return;
+    _log('Call ended: $callId');
+    _acceptingCallIds.remove(callId);
+    if (callId == _lastIncomingCallId) _lastIncomingCallId = null;
+    await FlutterCallkitIncoming.endCall(callId);
+    if (_callProvider?.callId == callId) _callProvider?.endCall();
+  }
+
+  static Future<void> _handleCallDeclinedNotification(
+      Map<String, dynamic> data) async {
+    final callId = data['callId'] as String?;
+    if (callId == null) return;
+    _log('Call declined: $callId');
+    _acceptingCallIds.remove(callId);
+    if (callId == _lastIncomingCallId) _lastIncomingCallId = null;
+    await FlutterCallkitIncoming.endCall(callId);
+    if (_callProvider?.callId == callId) _callProvider?.endCall();
+  }
+
+  static void _setupCallKitListeners() {
+    _log('Setting up CallKit listeners');
+    _callkitSubscription?.cancel();
+    _callkitSubscription = FlutterCallkitIncoming.onEvent.listen((event) async {
+      if (event == null) return;
+
+      final data = event.body as Map<dynamic, dynamic>?;
+      final callId = data?['id'] as String?;
+      final extra = data?['extra'] as Map<dynamic, dynamic>?;
+
+      _log('CallKit: ${event.event} for $callId');
+
+      switch (event.event) {
+        case Event.actionCallIncoming:
+          break;
+
+        case Event.actionCallAccept:
+          if (callId != null) await _onCallAccepted(callId, data, extra);
+          break;
+
+        case Event.actionCallDecline:
+          if (callId != null) {
+            _acceptingCallIds.remove(callId);
+            await _onCallDeclined(callId);
+          }
+          break;
+
+        case Event.actionCallEnded:
+          if (callId != null) {
+            _acceptingCallIds.remove(callId);
+            await _onCallEnded(callId);
+          }
+          break;
+
+        case Event.actionCallTimeout:
+          if (callId != null) {
+            _acceptingCallIds.remove(callId);
+            await _onCallTimeout(callId);
+          }
+          break;
+
+        case Event.actionCallToggleMute:
+          await CallManager.instance.toggleMute();
+          break;
+
+        default:
+          break;
+      }
+    });
+  }
+
+  static Future<void> _onCallAccepted(String callId,
+      Map<dynamic, dynamic>? data, Map<dynamic, dynamic>? extra) async {
+    // CRITICAL: Prevent duplicate accept processing
+    if (_acceptingCallIds.contains(callId)) {
+      _log('Already accepting $callId, ignoring duplicate');
+      return;
     }
+    _acceptingCallIds.add(callId);
 
-    // Update provider - call accepted and starting
-    if (_callProvider == null) {
-      log(
-        '[NotificationService] WARNING: CallStateProvider is null! Overlay will not show.',
-      );
-      // Try to recover if provider is null (conceptually shouldn't happen if properly registered)
-    } else {
-      log('[NotificationService] CallStateProvider found, updating state...');
+    try {
+      _log('>>> ACCEPTING: $callId <<<');
+      _log(
+          'Provider state: ${_callProvider?.state}, callId: ${_callProvider?.callId}');
+      _log('CallManager callId: ${CallManager.instance.currentCallId}');
 
-      // Hydrate if needed
-      if (_callProvider!.state == CallState.idle ||
-          _callProvider!.callId != callId) {
-        String? callerId;
-        String? roomName;
-
-        if (body != null) {
-          final extra = body['extra'] as Map<dynamic, dynamic>?;
-          callerId =
-              body['nameCaller'] as String? ?? extra?['nameCaller'] as String?;
-          roomName = extra?['roomName'] as String?;
-        }
-
-        _callProvider!.handleIncomingCall(
-          callId: callId,
-          callerId: callerId ?? 'Unknown',
-          roomName: roomName,
-          isIncoming: true,
-        );
+      // If already in this call and connected, return success
+      if (CallManager.instance.currentCallId == callId &&
+          _callProvider?.state == CallState.inCall) {
+        _log('Already connected to this call');
+        return;
       }
 
-      _callProvider!.acceptCall();
-      _callProvider!.startCall();
-    }
+      // If CallManager has this call, accept it
+      if (CallManager.instance.currentCallId == callId) {
+        _log('Call in manager, accepting...');
+        final result = await CallManager.instance.acceptCall();
+        _log('Accept result: $result');
+        return;
+      }
 
-    // REMOVED: notifyCallAccepted API call.
-    // relying on Firestore listener on the caller side.
+      // Need to fetch and set up
+      _log('Fetching from Firestore...');
+      final repo = locate<CallRepository>();
+      final call = await repo.getCall(callId);
+
+      if (call != null) {
+        _log('Got call, status: ${call.status}');
+        await CallManager.instance.handleIncomingCall(call);
+        final result = await CallManager.instance.acceptCall();
+        _log('Accept result: $result');
+      } else {
+        _log('Call not found, using notification data');
+        final callerName = extra?['callerName'] as String? ??
+            data?['nameCaller'] as String? ??
+            'Unknown';
+        final roomName = extra?['roomName'] as String?;
+        final callerId = extra?['callerId'] as String?;
+
+        final fallbackCall = CallModel(
+          id: callId,
+          callerId: callerId ?? '',
+          calleeId: '',
+          callerName: callerName,
+          calleeName: '',
+          roomName: roomName ?? '',
+          status: CallStatus.ringing,
+          type: CallType.audio,
+          participants: [],
+        );
+        await CallManager.instance.handleIncomingCall(fallbackCall);
+        final result = await CallManager.instance.acceptCall();
+        _log('Accept result: $result');
+      }
+    } catch (e, st) {
+      _log('Accept error: $e');
+      log('Stack:', stackTrace: st);
+      _acceptingCallIds.remove(callId);
+      await FlutterCallkitIncoming.endCall(callId);
+    }
   }
 
-  static Future<void> declineOrEndCall(String callId) async {
-    try {
-      await FirebaseFirestore.instance.collection('calls').doc(callId).update({
-        'status':
-            'declined', // or 'ended' depending on context, but declined is safe generic
-        'endedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      log('decline update failed: $e');
+  static Future<void> _onCallDeclined(String callId) async {
+    _log('Declining: $callId');
+    if (CallManager.instance.currentCallId == callId) {
+      await CallManager.instance.declineCall();
+    } else {
+      await locate<CallRepository>().declineCall(callId);
+      await FlutterCallkitIncoming.endCall(callId);
     }
-
-    // REMOVED: notifyCallDeclined API call.
-    // relying on Firestore listener on the caller side.
-
-    // Update provider
-    _callProvider?.endCall();
-
-    await FlutterCallkitIncoming.endCall(callId);
   }
 
-  // static Future<void> _showLocal({
-  //   required String title,
-  //   required String body,
-  // }) async {
-  //   const android = AndroidNotificationDetails(
-  //     'main_channel',
-  //     'Main Channel',
-  //     importance: Importance.high,
-  //     priority: Priority.high,
-  //   );
-  //   const ios = DarwinNotificationDetails();
-  //   const details = NotificationDetails(android: android, iOS: ios);
-  //   await _localNotificationsPlugin.show(0, title, body, details);
-  // }
+  static Future<void> _onCallEnded(String callId) async {
+    _log('Ending: $callId');
+    if (CallManager.instance.currentCallId == callId ||
+        _callProvider?.callId == callId) {
+      await CallManager.instance.endCall();
+    }
+  }
 
-  static Future<void> _syncTokenToStorageAndFirestore({
-    String? tokenOverride,
-  }) async {
+  static Future<void> _onCallTimeout(String callId) async {
+    _log('Timeout: $callId');
+    await locate<CallRepository>().markNoAnswer(callId);
+    if (_callProvider?.callId == callId) _callProvider?.endCall();
+  }
+
+  static Future<String?> getToken() => FirebaseMessaging.instance.getToken();
+
+  static Future<void> syncTokenToStorageAndFirestore(
+      {String? tokenOverride}) async {
     try {
-      final token = tokenOverride ?? await _messaging.getToken();
-      log('FCM token: $token');
-      appData.write(kKeyFCMToken, token);
-
+      final token = tokenOverride ?? await getToken();
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid != null && token != null) {
         await FirebaseFirestore.instance.collection('users').doc(uid).set({
@@ -428,48 +362,9 @@ class NotificationService {
         }, SetOptions(merge: true));
       }
     } catch (e) {
-      log('token sync error: $e');
+      _log('Token sync error: $e');
     }
   }
 
-  static Future<void> showNotification({
-    required String title,
-    required String body,
-  }) async {
-    const AndroidNotificationDetails androidDetails =
-        AndroidNotificationDetails(
-      'main_channel', // Channel ID
-      'Main Channel', // Channel name
-      importance: Importance.high,
-      priority: Priority.high,
-    );
-
-    const DarwinNotificationDetails iosDetails = DarwinNotificationDetails();
-
-    const NotificationDetails platformDetails = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    await _localNotificationsPlugin.show(
-      0, // Notification ID
-      title,
-      body,
-      platformDetails,
-    );
-  }
-
-  static Future<void> getToken() async {
-    try {
-      if (Platform.isIOS) {
-        String? apnsToken = await _messaging.getAPNSToken();
-        log("APNS Token: $apnsToken");
-      }
-      String? token = await _messaging.getToken();
-      log("Firebase Messaging Token: $token");
-      appData.write(kKeyFCMToken, token);
-    } catch (e) {
-      log("Error fetching token: $e");
-    }
-  }
+  static void dispose() => _callkitSubscription?.cancel();
 }

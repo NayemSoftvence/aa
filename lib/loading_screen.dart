@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:livekit_calling_app/features/auth/login.dart';
+import 'package:livekit_calling_app/features/auth/presentation/login.dart';
 import 'package:livekit_calling_app/features/home/presentation/home.dart';
 import 'constants/app_constants.dart';
 import 'helpers/di.dart';

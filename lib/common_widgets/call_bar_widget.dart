@@ -1,120 +1,137 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+import '../constants/call_constants.dart';
+import '../features/call/widgets/call_timer_widget.dart';
+import '../features/call/widgets/connection_quality_indicator.dart';
+import '../helpers/call_manager.dart';
 import '../providers/call_state_provider.dart';
 
-/// Widget that displays a persistent call bar when a call is active and minimized
 class CallBarWidget extends StatelessWidget {
   const CallBarWidget({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Consumer<CallStateProvider>(
-      builder: (context, callProvider, child) {
-        // Only show if in call and minimized
+      builder: (context, callProvider, _) {
         if (!callProvider.shouldShowCallBar) {
           return const SizedBox.shrink();
         }
 
-        return Material(
-          elevation: 8,
-          color: const Color(0xFF0A84FF),
-          child: InkWell(
-            onTap: () {
-              // Just maximize - overlay will show CallScreen automatically
-              final callProvider = context.read<CallStateProvider>();
-              callProvider.maximize();
-            },
-            child: Container(
-              height: 64,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        return GestureDetector(
+          onTap: () => callProvider.maximize(),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: _getBackgroundColor(callProvider.state),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              bottom: false,
               child: Row(
                 children: [
-                  // Call icon
+                  // Call indicator icon
                   Container(
-                    width: 40,
-                    height: 40,
+                    padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.2),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(
-                      Icons.videocam,
+                    child: Icon(
+                      _getIcon(callProvider.state),
                       color: Colors.white,
-                      size: 20,
+                      size: 18,
                     ),
                   ),
                   const SizedBox(width: 12),
 
-                  // Caller info and duration
+                  // Call info
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          callProvider.callerId ?? 'Unknown',
+                          callProvider.displayName,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 16,
                             fontWeight: FontWeight.w600,
+                            fontSize: 14,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 2),
-                        Text(
-                          callProvider.state == CallState.inCall
-                              ? callProvider.formattedDuration
-                              : (callProvider.state == CallState.ringing
-                                  ? 'Calling...'
-                                  : 'Connecting...'),
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.9),
-                            fontSize: 13,
-                          ),
+                        Row(
+                          children: [
+                            if (callProvider.isInCall) ...[
+                              const CallTimerWidget(
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              ConnectionQualityIndicator(
+                                quality: callProvider.connectionQuality,
+                                barWidth: 3,
+                                maxHeight: 12,
+                              ),
+                            ] else
+                              Text(
+                                callProvider.stateDescription,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                              ),
+                          ],
                         ),
                       ],
                     ),
                   ),
 
-                  // Mute button
-                  _QuickActionButton(
-                    icon: callProvider.isMuted ? Icons.mic_off : Icons.mic,
-                    onTap: () {
-                      // This will be handled by CallScreen, just show visual feedback
-                    },
-                    isActive: !callProvider.isMuted,
-                  ),
-                  const SizedBox(width: 8),
+                  // Mute indicator
+                  if (callProvider.isMuted)
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      margin: const EdgeInsets.only(right: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.3),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.mic_off,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                    ),
 
-                  // Return to call indicator
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
+                  // End call button
+                  IconButton(
+                    onPressed: () => CallManager.instance.endCall(),
+                    icon: const Icon(Icons.call_end, color: Colors.white),
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      padding: const EdgeInsets.all(8),
                     ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Tap to return',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        SizedBox(width: 4),
-                        Icon(
-                          Icons.arrow_forward_ios,
-                          color: Colors.white,
-                          size: 12,
-                        ),
-                      ],
+                    iconSize: 20,
+                  ),
+
+                  // Expand button
+                  IconButton(
+                    onPressed: () => callProvider.maximize(),
+                    icon: const Icon(
+                      Icons.open_in_full,
+                      color: Colors.white,
+                      size: 20,
                     ),
                   ),
                 ],
@@ -125,36 +142,28 @@ class CallBarWidget extends StatelessWidget {
       },
     );
   }
-}
 
-class _QuickActionButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  final bool isActive;
+  Color _getBackgroundColor(CallState state) {
+    switch (state) {
+      case CallState.inCall:
+        return Colors.green.shade600;
+      case CallState.connecting:
+      case CallState.reconnecting:
+        return Colors.orange.shade600;
+      default:
+        return Colors.blue.shade600;
+    }
+  }
 
-  const _QuickActionButton({
-    required this.icon,
-    required this.onTap,
-    this.isActive = true,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color:
-              isActive
-                  ? Colors.white.withOpacity(0.2)
-                  : Colors.red.withOpacity(0.3),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, color: Colors.white, size: 18),
-      ),
-    );
+  IconData _getIcon(CallState state) {
+    switch (state) {
+      case CallState.inCall:
+        return Icons.call;
+      case CallState.connecting:
+      case CallState.reconnecting:
+        return Icons.sync;
+      default:
+        return Icons.phone_in_talk;
+    }
   }
 }
