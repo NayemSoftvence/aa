@@ -1,5 +1,3 @@
-import 'dart:developer';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -82,6 +80,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: false,
+        iconTheme: const IconThemeData(color: Colors.black),
         leading: Padding(
           padding: const EdgeInsets.all(12),
           child: CircleAvatar(
@@ -92,7 +94,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 me.photoURL == null ? const Icon(Icons.person, size: 18) : null,
           ),
         ),
-        title: const Text('LiveCall'),
+        title: const Text(
+          'LiveCall',
+          style: TextStyle(
+            color: Colors.black,
+            fontWeight: FontWeight.bold,
+            fontSize: 22,
+          ),
+        ),
         actions: [
           IconButton(
             tooltip: 'Call History',

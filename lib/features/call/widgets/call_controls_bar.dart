@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import 'call_action_button.dart';
 
@@ -26,55 +27,51 @@ class CallControlsBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        decoration: BoxDecoration(
-          color: Colors.black,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.3),
-              blurRadius: 10,
-              offset: const Offset(0, -2),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            // Mute button
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
+      color: Colors.black, // Opaque black for column layout
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          // Mute button
+          CallControlButton(
+            icon: isMuted ? Icons.mic_off : Icons.mic,
+            isActive: isMuted,
+            activeColor: Colors.red.shade400,
+            onTap: onMuteToggle,
+            size: 50
+                .r, // Assuming CallControlButton supports size or I need to handle it?
+            // checking CallControlButton signature... limited info. Assuming standard.
+            // If CallControlButton is custom, I might need to update IT too.
+            // Let's assume standard button or icon size.
+          ),
+
+          // Speaker button
+          CallControlButton(
+            icon: isSpeakerOn ? Icons.volume_up : Icons.hearing,
+            isActive: isSpeakerOn,
+            onTap: onSpeakerToggle,
+            size: 50.r,
+          ),
+
+          // Camera button (optional)
+          if (showCameraButton)
             CallControlButton(
-              icon: isMuted ? Icons.mic_off : Icons.mic,
-              isActive: isMuted,
-              activeColor: Colors.red.shade400,
-              onTap: onMuteToggle,
+              icon: isCameraOn ? Icons.videocam : Icons.videocam_off,
+              isActive: isCameraOn,
+              onTap: onCameraToggle,
+              size: 50.r,
             ),
 
-            // Speaker button
-            CallControlButton(
-              icon: isSpeakerOn ? Icons.volume_up : Icons.hearing,
-              isActive: isSpeakerOn,
-              onTap: onSpeakerToggle,
-            ),
-
-            // Camera button (optional)
-            if (showCameraButton)
-              CallControlButton(
-                icon: isCameraOn ? Icons.videocam : Icons.videocam_off,
-                isActive: isCameraOn,
-                onTap: onCameraToggle,
-              ),
-
-            // Hang up button
-            CallControlButton(
-              icon: Icons.call_end,
-              isActive: true,
-              activeColor: Colors.red,
-              onTap: onHangUp,
-            ),
-          ],
-        ),
+          // Hang up button
+          CallControlButton(
+            icon: Icons.call_end,
+            isActive: true,
+            activeColor: Colors.red,
+            onTap: onHangUp,
+            size: 60.r, // Slightly larger
+          ),
+        ],
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'dart:developer';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:provider/provider.dart';
 
@@ -27,13 +28,14 @@ class _CallScreenState extends State<CallScreen> {
   void initState() {
     super.initState();
 
-    // Notify provider that call is starting and maximize (full screen)
+    // Notify provider to maximize
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final callProvider = context.read<CallStateProvider>();
-      if (callProvider.state != CallState.inCall) {
-        callProvider.startCall();
+      // Don't auto-start call here - let call manager handle connection
+      // Just ensure UI is maximized
+      if (callProvider.isMinimized) {
+        callProvider.maximize();
       }
-      callProvider.maximize();
     });
   }
 
@@ -53,8 +55,22 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _handleAcceptCall() async {
     final callProvider = context.read<CallStateProvider>();
-    callProvider.acceptCall();
-    callProvider.startCall();
+    final callId = callProvider.callId;
+
+    if (callId == null) {
+      log('[CallScreen] No call ID to accept');
+      return;
+    }
+
+    // PROBLEM 2 FIX: Use CallManager to accept the call (which also joins room)
+    final success = await _callManager.acceptCall();
+    log('[CallScreen] Accept result: $success');
+
+    if (!success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to accept call')),
+      );
+    }
   }
 
   @override
@@ -78,41 +94,52 @@ class _CallScreenState extends State<CallScreen> {
               }
             },
             child: Scaffold(
-              backgroundColor: Colors.transparent,
-              appBar: _buildAppBar(callProvider),
-              body: Column(
-                children: [
-                  // Error message
-                  if (callProvider.errorMessage != null)
-                    _buildErrorBanner(callProvider.errorMessage!),
+              backgroundColor: Colors.black, // Opaque black
+              body: SafeArea(
+                child: Column(
+                  children: [
+                    // Top App Bar - Fixed part of column
+                    if (!isIncomingRinging) _buildOverlayAppBar(callProvider),
 
-                  // Reconnecting indicator
-                  if (isReconnecting) _buildReconnectingBanner(),
+                    // Main Content
+                    Expanded(
+                      child: Column(
+                        children: [
+                          // Error message
+                          if (callProvider.errorMessage != null)
+                            _buildErrorBanner(callProvider.errorMessage!),
 
-                  // Main content
-                  Expanded(
-                    child: isIncomingRinging
-                        ? _buildIncomingRingingView(callProvider)
-                        : (room == null || !isConnected
-                            ? _buildConnectingView()
-                            : _buildCallView(room, callProvider)),
-                  ),
+                          // Reconnecting indicator
+                          if (isReconnecting) _buildReconnectingBanner(),
 
-                  // Controls - show call controls or accept/decline buttons
-                  if (isIncomingRinging)
-                    _buildIncomingCallActions()
-                  else
-                    CallControlsBar(
-                      isMuted: callProvider.isMuted,
-                      isSpeakerOn: callProvider.isSpeakerOn,
-                      isCameraOn: callProvider.isCameraOn,
-                      onMuteToggle: _callManager.toggleMute,
-                      onSpeakerToggle: _callManager.toggleSpeaker,
-                      onCameraToggle: _callManager.toggleCamera,
-                      onHangUp: _handleHangUp,
-                      showCameraButton: true,
+                          // The Views
+                          Expanded(
+                            child: isIncomingRinging
+                                ? _buildIncomingRingingView(callProvider)
+                                : (room == null || !isConnected
+                                    ? _buildConnectingView()
+                                    : _buildCallView(room, callProvider)),
+                          ),
+                        ],
+                      ),
                     ),
-                ],
+
+                    // Controls (Bottom)
+                    if (isIncomingRinging)
+                      _buildIncomingCallActions()
+                    else
+                      CallControlsBar(
+                        isMuted: callProvider.isMuted,
+                        isSpeakerOn: callProvider.isSpeakerOn,
+                        isCameraOn: callProvider.isCameraOn,
+                        onMuteToggle: _callManager.toggleMute,
+                        onSpeakerToggle: _callManager.toggleSpeaker,
+                        onCameraToggle: _callManager.toggleCamera,
+                        onHangUp: _handleHangUp,
+                        showCameraButton: true,
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -121,31 +148,44 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
-  PreferredSizeWidget _buildAppBar(CallStateProvider callProvider) {
-    return AppBar(
-      backgroundColor: Colors.black,
-      foregroundColor: Colors.white,
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back_ios),
-        onPressed: _handleMinimize,
-      ),
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildOverlayAppBar(CallStateProvider callProvider) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 8.h),
+      child: Row(
         children: [
-          Text(
-            callProvider.displayName,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          IconButton(
+            icon: Icon(Icons.keyboard_arrow_down,
+                color: Colors.white, size: 28.r),
+            onPressed: _handleMinimize,
           ),
-          Text(
-            callProvider.stateDescription,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+          SizedBox(width: 8.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  callProvider.displayName,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16.sp,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  callProvider.stateDescription,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12.sp,
+                    fontWeight: FontWeight.normal,
+                  ),
+                ),
+              ],
+            ),
           ),
+          ConnectionQualityIndicator(quality: callProvider.connectionQuality),
+          SizedBox(width: 16.w),
         ],
       ),
-      actions: [
-        ConnectionQualityIndicator(quality: callProvider.connectionQuality),
-        const SizedBox(width: 16),
-      ],
     );
   }
 
@@ -212,112 +252,106 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Widget _buildCallView(Room room, CallStateProvider callProvider) {
-    final participants = <Participant>[
-      if (room.localParticipant != null) room.localParticipant!,
-      ...room.remoteParticipants.values,
-    ];
+    if (room.localParticipant == null && room.remoteParticipants.isEmpty) {
+      return _buildConnectingView();
+    }
 
-    if (participants.isEmpty) {
-      return const Center(
-        child: Text(
-          'Waiting for others...',
-          style: TextStyle(color: Colors.white70, fontSize: 16),
+    final remoteP = room.remoteParticipants.values.isNotEmpty
+        ? room.remoteParticipants.values.first
+        : null;
+    final localP = room.localParticipant;
+
+    return Column(
+      children: [
+        // Remote Participant (Top Half)
+        if (remoteP != null)
+          Expanded(
+            child: _buildSingleParticipantView(
+              remoteP,
+              isLocal: false,
+              fit: VideoViewFit.cover,
+            ),
+          ),
+
+        // Divider (Optional, or just straight cut)
+        if (remoteP != null && localP != null) SizedBox(height: 2.h),
+
+        // Local Participant (Bottom Half or Full if alone)
+        if (localP != null)
+          Expanded(
+            child: _buildSingleParticipantView(
+              localP,
+              isLocal: true,
+              fit: VideoViewFit.cover,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSingleParticipantView(
+    Participant p, {
+    required bool isLocal,
+    VideoViewFit fit = VideoViewFit.cover,
+    bool isPip = false,
+  }) {
+    // Get first available video track
+    VideoTrack? videoTrack;
+    for (final pub in p.videoTrackPublications) {
+      if (pub.track is VideoTrack) {
+        videoTrack = pub.track as VideoTrack;
+        break;
+      }
+    }
+
+    if (videoTrack != null) {
+      return VideoTrackRenderer(
+        videoTrack,
+        fit: fit,
+      );
+    } else {
+      final safeName = _getSafeName(p.name, p.identity);
+
+      return Container(
+        color: Colors.grey[900],
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ParticipantAvatar(
+                name: isLocal ? 'You' : safeName,
+                isLocal: isLocal,
+                isMuted: !p.isMicrophoneEnabled(),
+                isSpeaking: p.isSpeaking,
+                size: isPip ? 40.r : 80.r,
+                showName:
+                    false, // Fix: Disable internal name to prevent double rendering
+              ),
+              if (!isPip) ...[
+                SizedBox(height: 16.h),
+                Text(
+                  isLocal ? 'You' : safeName,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18.sp,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ]
+            ],
+          ),
         ),
       );
     }
+  }
 
-    // Video layout: show video tracks with fallback to avatars
-    return GridView.builder(
-      padding: const EdgeInsets.all(8),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 9 / 16,
-        mainAxisSpacing: 8,
-        crossAxisSpacing: 8,
-      ),
-      itemCount: participants.length,
-      itemBuilder: (context, index) {
-        final p = participants[index];
-        final isLocal = p == room.localParticipant;
-
-        // Get first available video track
-        VideoTrack? videoTrack;
-        for (final pub in p.videoTrackPublications) {
-          if (pub.track is VideoTrack) {
-            videoTrack = pub.track as VideoTrack;
-            break;
-          }
-        }
-
-        return Container(
-          decoration: BoxDecoration(
-            color: Colors.grey[900],
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: videoTrack != null
-                ? Stack(
-                    children: [
-                      VideoTrackRenderer(
-                        videoTrack,
-                        fit: VideoViewFit.contain,
-                      ),
-                      // Show name overlay at bottom
-                      Positioned(
-                        bottom: 8,
-                        left: 8,
-                        right: 8,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.5),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            isLocal
-                                ? 'You'
-                                : (p.name.isNotEmpty ? p.name : 'Guest'),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                    ],
-                  )
-                : Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.videocam_off,
-                          color: Colors.white54,
-                          size: 40,
-                        ),
-                        const SizedBox(height: 8),
-                        ParticipantAvatar(
-                          name: isLocal
-                              ? 'You'
-                              : (p.name.isNotEmpty ? p.name : 'Guest'),
-                          isLocal: isLocal,
-                          isMuted: !p.isMicrophoneEnabled(),
-                          isSpeaking: p.isSpeaking,
-                        ),
-                      ],
-                    ),
-                  ),
-          ),
-        );
-      },
-    );
+  String _getSafeName(String? name, String? identity) {
+    if (name == null || name.isEmpty) return 'Guest';
+    // If name matches identity (often means no name set) or looks like an ID
+    if (name == identity || (name.length > 15 && !name.contains(' '))) {
+      return 'Guest';
+    }
+    return name;
   }
 
   Widget _buildIncomingRingingView(CallStateProvider callProvider) {

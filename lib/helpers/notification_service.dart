@@ -4,6 +4,8 @@ import 'dart:developer';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_callkit_incoming/entities/entities.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 
@@ -18,6 +20,7 @@ class NotificationService {
   static CallStateProvider? _callProvider;
   static bool _isInitialized = false;
   static StreamSubscription? _callkitSubscription;
+  static Timer? _ringtoneTimer; // Track ringtone playback timer
 
   // Deduplication - very important!
   static final Set<String> _processedMessageIds = {};
@@ -54,8 +57,9 @@ class NotificationService {
         (m) => handleRemoteMessage(m, openedFromTray: true, coldStart: false));
 
     final initialMsg = await FirebaseMessaging.instance.getInitialMessage();
-    if (initialMsg != null)
+    if (initialMsg != null) {
       handleRemoteMessage(initialMsg, openedFromTray: true, coldStart: true);
+    }
 
     _setupCallKitListeners();
     await FlutterCallkitIncoming.requestFullIntentPermission();
@@ -74,8 +78,9 @@ class NotificationService {
       return;
     }
     _processedMessageIds.add(msgId);
-    if (_processedMessageIds.length > 20)
+    if (_processedMessageIds.length > 20) {
       _processedMessageIds.remove(_processedMessageIds.first);
+    }
 
     _log('FCM: $msgId');
     handleRemoteMessage(message, openedFromTray: false, coldStart: false);
@@ -125,6 +130,16 @@ class NotificationService {
 
     _log('Incoming: $callId from $callerName');
 
+    // PROBLEM 1 FIX: Only show CallKit if app is NOT in foreground
+    // Use a more reliable check: if Navigator has active route, app is in foreground
+    final isAppInForeground =
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    _log('=== INCOMING CALL CHECK ===');
+    _log('App lifecycle state: ${WidgetsBinding.instance.lifecycleState}');
+    _log('App in foreground: $isAppInForeground');
+    _log('Provider exists: ${_callProvider != null}');
+    _log('==========================');
+
     final params = CallKitParams(
       id: callId,
       nameCaller: callerName,
@@ -160,8 +175,15 @@ class NotificationService {
       ),
     );
 
-    await FlutterCallkitIncoming.showCallkitIncoming(params);
-    _log('CallKit shown');
+    // Only show CallKit if app is in background
+    if (!isAppInForeground) {
+      await FlutterCallkitIncoming.showCallkitIncoming(params);
+      _log('CallKit shown (app in background)');
+    } else {
+      _log('Skipping CallKit (app in foreground - using custom UI)');
+      // Play ringtone for foreground calls
+      _playIncomingCallRingtone();
+    }
 
     if (CallManager.instance.isReady) {
       final call = CallModel(
@@ -177,6 +199,7 @@ class NotificationService {
         participants: [],
       );
       await CallManager.instance.handleIncomingCall(call);
+      _log('Call handled by manager');
     }
   }
 
@@ -186,7 +209,10 @@ class NotificationService {
     if (callId == null) return;
     _log('Call ended: $callId');
     _acceptingCallIds.remove(callId);
-    if (callId == _lastIncomingCallId) _lastIncomingCallId = null;
+    if (callId == _lastIncomingCallId) {
+      _lastIncomingCallId = null;
+      _stopIncomingCallRingtone();
+    }
     await FlutterCallkitIncoming.endCall(callId);
     if (_callProvider?.callId == callId) _callProvider?.endCall();
   }
@@ -197,7 +223,10 @@ class NotificationService {
     if (callId == null) return;
     _log('Call declined: $callId');
     _acceptingCallIds.remove(callId);
-    if (callId == _lastIncomingCallId) _lastIncomingCallId = null;
+    if (callId == _lastIncomingCallId) {
+      _lastIncomingCallId = null;
+      _stopIncomingCallRingtone();
+    }
     await FlutterCallkitIncoming.endCall(callId);
     if (_callProvider?.callId == callId) _callProvider?.endCall();
   }
@@ -261,6 +290,9 @@ class NotificationService {
       return;
     }
     _acceptingCallIds.add(callId);
+
+    // Stop ringtone when accepting
+    _stopIncomingCallRingtone();
 
     try {
       _log('>>> ACCEPTING: $callId <<<');
@@ -366,5 +398,49 @@ class NotificationService {
     }
   }
 
-  static void dispose() => _callkitSubscription?.cancel();
+  static void dispose() {
+    _callkitSubscription?.cancel();
+    _stopIncomingCallRingtone();
+  }
+
+  // ==================== RINGTONE PLAYBACK ====================
+
+  static void _playIncomingCallRingtone() {
+    _log('>>> PLAYING RINGTONE START <<<');
+    _stopIncomingCallRingtone(); // Stop any existing ringtone
+
+    // Play system ringtone using native platform channel
+    try {
+      const platform = MethodChannel('com.livekitCalling.app/ringtone');
+      _log('Invoking playRingtone on platform channel...');
+      platform.invokeMethod<void>('playRingtone').then((_) {
+        _log('Ringtone method invoked successfully');
+      }).catchError((error) {
+        _log('Error invoking ringtone: $error');
+      });
+
+      // Stop ringtone after ring timeout (in case user doesn't answer)
+      _ringtoneTimer =
+          Timer(const Duration(seconds: CallTimeouts.ringTimeout), () {
+        _log('Ringtone timeout - stopping');
+        _stopIncomingCallRingtone();
+      });
+      _log('>>> PLAYING RINGTONE END <<<');
+    } catch (e) {
+      _log('Error playing ringtone: $e');
+    }
+  }
+
+  static void _stopIncomingCallRingtone() {
+    _ringtoneTimer?.cancel();
+    _ringtoneTimer = null;
+
+    try {
+      const platform = MethodChannel('com.livekitCalling.app/ringtone');
+      platform.invokeMethod('stopRingtone');
+      _log('Ringtone stopped');
+    } catch (e) {
+      _log('Error stopping ringtone: $e');
+    }
+  }
 }

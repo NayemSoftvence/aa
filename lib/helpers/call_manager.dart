@@ -290,7 +290,7 @@ class CallManager {
       for (var i = 1; i <= 2; i++) {
         try {
           await _room!
-              .connect(creds.url!, creds.token!,
+              .connect(creds.url, creds.token,
                   connectOptions: const ConnectOptions(autoSubscribe: true))
               .timeout(const Duration(seconds: 15));
           connected = true;
@@ -357,7 +357,9 @@ class CallManager {
     _roomEvents?.on<ParticipantDisconnectedEvent>((e) {
       _log('Left: ${e.participant.identity}');
       if (e.participant.identity != _room?.localParticipant?.identity &&
-          _provider.hasActiveCall) endCall();
+          _provider.hasActiveCall) {
+        endCall();
+      }
       _updateParticipants();
     });
     _roomEvents?.on<TrackSubscribedEvent>((_) => _updateParticipants());
@@ -467,7 +469,8 @@ class CallManager {
 
   void _startRingTimeout(String callId) {
     _ringTimeout?.cancel();
-    _ringTimeout = Timer(Duration(seconds: CallTimeouts.ringTimeout), () async {
+    _ringTimeout =
+        Timer(const Duration(seconds: CallTimeouts.ringTimeout), () async {
       if (_provider.state == CallState.outgoingRinging) {
         await _callRepository.markNoAnswer(callId);
         _provider.setError('No answer');
@@ -518,6 +521,91 @@ class CallManager {
       }
     } catch (e) {
       _log('Restore error: $e');
+    }
+  }
+
+  Future<void> handleCallKitAcceptedCall(String callId) async {
+    try {
+      _log('Handling CallKit accepted call: $callId');
+      final call = await _callRepository.getCall(callId);
+      if (call == null) {
+        _log('Call not found in Firestore: $callId');
+        return;
+      }
+
+      if (call.status == CallStatus.ringing) {
+        _log('Call is ringing, accepting...');
+        _provider.handleIncomingCall(call);
+        await acceptCall();
+      } else if (call.status == CallStatus.accepted) {
+        _log('Call already accepted, restoring...');
+        _provider.restoreCall(call);
+        if (await _joinRoom(call.id)) {
+          _provider.startCall();
+          _watchCallStatus(call.id);
+          await FlutterCallkitIncoming.setCallConnected(call.id);
+        }
+      } else {
+        _log('Call status ${call.status} is not eligible for restore');
+      }
+    } catch (e) {
+      _log('Error handling CallKit call: $e');
+    }
+  }
+
+  Future<void> checkIncomingCall() async {
+    try {
+      final call = await _callRepository.getPendingIncomingCall();
+      if (call != null) {
+        _log('Found pending incoming call: ${call.id}');
+        handleIncomingCall(call);
+      }
+    } catch (e) {
+      _log('Error checking incoming: $e');
+    }
+  }
+
+  Future<void> checkRestoration() async {
+    _log('Starting call restoration check...');
+
+    // 1. Check CallKit active calls (with retry)
+    // Retry mechanism to handle race conditions where CallKit might not be ready on cold start
+    bool foundCallKitCall = false;
+    for (var i = 0; i < 3; i++) {
+      try {
+        final activeCalls = await FlutterCallkitIncoming.activeCalls();
+        if (activeCalls is List && activeCalls.isNotEmpty) {
+          for (final call in activeCalls) {
+            final callId = call['id'] as String?;
+            final isAccepted = call['isAccepted'] as bool? ?? false;
+
+            if (callId != null && isAccepted) {
+              _log('Found CallKit accepted call: $callId');
+              await handleCallKitAcceptedCall(callId);
+              foundCallKitCall = true;
+              return; // Done
+            }
+          }
+        }
+      } catch (e) {
+        _log('Error checking activeCalls attempt $i: $e');
+      }
+
+      if (!foundCallKitCall && i < 2) {
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+    }
+
+    // 2. Fallback: Call Restoration from Firestore (if CallKit missed it or not used)
+    if (!foundCallKitCall) {
+      _log('Checking Firestore for restoration...');
+      await restoreActiveCall();
+    }
+
+    // 3. Last resort: Check for any ringing calls (incoming) we missed
+    // Only if we haven't successfully restored a call
+    if (!isReady || !_provider.hasActiveCall) {
+      await checkIncomingCall();
     }
   }
 }

@@ -1,6 +1,5 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -48,9 +47,7 @@ void main() async {
   CallManager.instance.registerProvider(callProvider);
   NotificationService.registerCallProvider(callProvider);
   await NotificationService.initialize();
-
-  // Only restore ALREADY accepted calls
-  await CallManager.instance.restoreActiveCall();
+  // Call restoration is carried out in LoadingScreen to ensure Auth is ready
 
   runApp(
     MultiProvider(
@@ -60,30 +57,6 @@ void main() async {
       child: const MyApp(),
     ),
   );
-}
-
-Future<void> _checkPendingCalls() async {
-  try {
-    // First check if there's an accepted call in CallKit
-    final activeCalls = await FlutterCallkitIncoming.activeCalls();
-    if (activeCalls is List && activeCalls.isNotEmpty) {
-      for (final call in activeCalls) {
-        final callId = call['id'] as String?;
-        final isAccepted = call['isAccepted'] as bool? ?? false;
-
-        if (callId != null && isAccepted) {
-          // User accepted while app was killed - restore and connect
-          await CallManager.instance.restoreActiveCall();
-          return;
-        }
-      }
-    }
-
-    // Check for any ongoing calls in Firestore
-    await CallManager.instance.restoreActiveCall();
-  } catch (e) {
-    debugPrint('Error checking pending calls: $e');
-  }
 }
 
 class MyApp extends StatelessWidget {

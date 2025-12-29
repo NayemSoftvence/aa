@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 class CallActionButton extends StatelessWidget {
   final IconData icon;
   final Color color;
   final String label;
   final VoidCallback onTap;
-  final double size;
+  final double? size;
 
   const CallActionButton({
     super.key,
@@ -13,11 +14,12 @@ class CallActionButton extends StatelessWidget {
     required this.color,
     required this.label,
     required this.onTap,
-    this.size = 72,
+    this.size, // Default handled in build
   });
 
   @override
   Widget build(BuildContext context) {
+    final s = size ?? 72.r;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -29,23 +31,23 @@ class CallActionButton extends StatelessWidget {
             onTap: onTap,
             customBorder: const CircleBorder(),
             child: Container(
-              width: size,
-              height: size,
+              width: s,
+              height: s,
               alignment: Alignment.center,
               child: Icon(
                 icon,
                 color: Colors.white,
-                size: size * 0.45,
+                size: s * 0.45,
               ),
             ),
           ),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: 8.h),
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             color: Colors.white70,
-            fontSize: 14,
+            fontSize: 14.sp,
           ),
         ),
       ],
@@ -60,7 +62,7 @@ class CallControlButton extends StatelessWidget {
   final VoidCallback onTap;
   final Color? activeColor;
   final Color? inactiveColor;
-  final double size;
+  final double? size;
 
   const CallControlButton({
     super.key,
@@ -69,11 +71,12 @@ class CallControlButton extends StatelessWidget {
     this.isActive = false,
     this.activeColor,
     this.inactiveColor,
-    this.size = 56,
+    this.size,
   });
 
   @override
   Widget build(BuildContext context) {
+    final s = size ?? 56.r;
     final bgColor = isActive
         ? (activeColor ?? Colors.white)
         : (inactiveColor ?? const Color(0x33FFFFFF));
@@ -81,15 +84,15 @@ class CallControlButton extends StatelessWidget {
 
     return InkResponse(
       onTap: onTap,
-      radius: size / 2,
+      radius: s / 2,
       child: Container(
-        width: size,
-        height: size,
+        width: s,
+        height: s,
         decoration: BoxDecoration(
           color: bgColor,
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, color: iconColor),
+        child: Icon(icon, color: iconColor, size: s * 0.5),
       ),
     );
   }

@@ -120,9 +120,15 @@ class CallStateProvider extends ChangeNotifier {
   /// Get display name for the other party
   String get displayName {
     if (_currentCall == null) return 'Unknown';
-    return _currentCall!.calleeName.isNotEmpty
+    String name = _currentCall!.calleeName.isNotEmpty
         ? _currentCall!.calleeName
         : _currentCall!.callerName;
+
+    // Safety check: if name looks like an ID (long, no spaces), show generic
+    if (name.length > 15 && !name.contains(' ')) {
+      return 'Guest';
+    }
+    return name;
   }
 
   /// Get display photo for the other party

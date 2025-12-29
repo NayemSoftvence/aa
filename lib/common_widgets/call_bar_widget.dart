@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 
 import '../constants/call_constants.dart';
@@ -22,14 +23,14 @@ class CallBarWidget extends StatelessWidget {
           onTap: () => callProvider.maximize(),
           child: Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
             decoration: BoxDecoration(
               color: _getBackgroundColor(callProvider.state),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.1),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
+                  blurRadius: 4.r,
+                  offset: Offset(0, 2.h),
                 ),
               ],
             ),
@@ -39,7 +40,7 @@ class CallBarWidget extends StatelessWidget {
                 children: [
                   // Call indicator icon
                   Container(
-                    padding: const EdgeInsets.all(8),
+                    padding: EdgeInsets.all(8.w),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.2),
                       shape: BoxShape.circle,
@@ -47,10 +48,10 @@ class CallBarWidget extends StatelessWidget {
                     child: Icon(
                       _getIcon(callProvider.state),
                       color: Colors.white,
-                      size: 18,
+                      size: 18.r,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: 12.w),
 
                   // Call info
                   Expanded(
@@ -60,36 +61,36 @@ class CallBarWidget extends StatelessWidget {
                       children: [
                         Text(
                           callProvider.displayName,
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w600,
-                            fontSize: 14,
+                            fontSize: 14.sp,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(height: 2),
+                        SizedBox(height: 2.h),
                         Row(
                           children: [
                             if (callProvider.isInCall) ...[
-                              const CallTimerWidget(
+                              CallTimerWidget(
                                 style: TextStyle(
                                   color: Colors.white70,
-                                  fontSize: 12,
+                                  fontSize: 12.sp,
                                 ),
                               ),
-                              const SizedBox(width: 8),
+                              SizedBox(width: 8.w),
                               ConnectionQualityIndicator(
                                 quality: callProvider.connectionQuality,
-                                barWidth: 3,
-                                maxHeight: 12,
+                                barWidth: 3.w,
+                                maxHeight: 12.h,
                               ),
                             ] else
                               Text(
                                 callProvider.stateDescription,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   color: Colors.white70,
-                                  fontSize: 12,
+                                  fontSize: 12.sp,
                                 ),
                               ),
                           ],
@@ -101,16 +102,16 @@ class CallBarWidget extends StatelessWidget {
                   // Mute indicator
                   if (callProvider.isMuted)
                     Container(
-                      padding: const EdgeInsets.all(6),
-                      margin: const EdgeInsets.only(right: 8),
+                      padding: EdgeInsets.all(6.w),
+                      margin: EdgeInsets.only(right: 8.w),
                       decoration: BoxDecoration(
                         color: Colors.red.withOpacity(0.3),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.mic_off,
                         color: Colors.white,
-                        size: 16,
+                        size: 16.r,
                       ),
                     ),
 
@@ -120,18 +121,18 @@ class CallBarWidget extends StatelessWidget {
                     icon: const Icon(Icons.call_end, color: Colors.white),
                     style: IconButton.styleFrom(
                       backgroundColor: Colors.red,
-                      padding: const EdgeInsets.all(8),
+                      padding: EdgeInsets.all(8.w),
                     ),
-                    iconSize: 20,
+                    iconSize: 20.r,
                   ),
 
                   // Expand button
                   IconButton(
                     onPressed: () => callProvider.maximize(),
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.open_in_full,
                       color: Colors.white,
-                      size: 20,
+                      size: 20.r,
                     ),
                   ),
                 ],
