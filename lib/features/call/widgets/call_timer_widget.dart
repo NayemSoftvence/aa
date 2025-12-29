@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 
 import '../../../providers/call_state_provider.dart';
@@ -15,9 +16,9 @@ class CallTimerWidget extends StatelessWidget {
         return Text(
           provider.formattedDuration,
           style: style ??
-              const TextStyle(
+              TextStyle(
                 color: Colors.white,
-                fontSize: 14,
+                fontSize: 14.sp,
                 fontWeight: FontWeight.w500,
               ),
         );
@@ -72,9 +73,9 @@ class _AnimatedCallTimerState extends State<AnimatedCallTimer>
                 animation: _blinkController,
                 builder: (context, _) {
                   return Container(
-                    width: 8,
-                    height: 8,
-                    margin: const EdgeInsets.only(right: 8),
+                    width: 8.w,
+                    height: 8.h,
+                    margin: EdgeInsets.only(right: 8.w),
                     decoration: BoxDecoration(
                       color: Colors.red.withOpacity(_blinkController.value),
                       shape: BoxShape.circle,
@@ -85,9 +86,9 @@ class _AnimatedCallTimerState extends State<AnimatedCallTimer>
             Text(
               provider.formattedDuration,
               style: widget.style ??
-                  const TextStyle(
+                  TextStyle(
                     color: Colors.white,
-                    fontSize: 14,
+                    fontSize: 14.sp,
                     fontWeight: FontWeight.w500,
                   ),
             ),
