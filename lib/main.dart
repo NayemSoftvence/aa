@@ -8,6 +8,7 @@ import 'package:livekit_calling_app/loading_screen.dart';
 import 'constants/custome_theme.dart';
 import 'gen/colors.gen.dart';
 import 'helpers/all_routes.dart';
+import 'helpers/call_manager.dart';
 import 'helpers/di.dart';
 import 'helpers/helper_methods.dart';
 import 'helpers/navigation_service.dart';
@@ -19,10 +20,11 @@ import 'firebase_options.dart';
 import 'common_widgets/call_screen_overlay.dart';
 import 'providers/call_state_provider.dart';
 
+/// Background message handler - must be top-level function
+
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
   await NotificationService.handleRemoteMessage(
     message,
     openedFromTray: false,
@@ -35,18 +37,25 @@ void main() async {
 
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
   await GetStorage.init();
   diSetup();
   DioSingleton.instance.create();
-  await NotificationService.initialize();
 
-  // Create CallStateProvider instance and register it immediately
-  // This ensures it's available for CallKit events that may fire early
   final callProvider = CallStateProvider();
+
+  CallManager.instance.registerProvider(callProvider);
   NotificationService.registerCallProvider(callProvider);
+  await NotificationService.initialize();
+  // Call restoration is carried out in LoadingScreen to ensure Auth is ready
 
   runApp(
-    ChangeNotifierProvider.value(value: callProvider, child: const MyApp()),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: callProvider),
+      ],
+      child: const MyApp(),
+    ),
   );
 }
 
@@ -68,6 +77,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
+//all feature working fine
 class UtillScreenMobile extends StatelessWidget {
   const UtillScreenMobile({super.key});
 
@@ -90,7 +100,7 @@ class UtillScreenMobile extends StatelessWidget {
               useMaterial3: false,
               scaffoldBackgroundColor: AppColors.cFFFFFF,
               appBarTheme: const AppBarTheme(
-                color: AppColors.cFFFFFF,
+                backgroundColor: AppColors.cFFFFFF,
                 elevation: 0,
               ),
             ),

@@ -1,14 +1,13 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:livekit_calling_app/features/auth/login.dart';
+import 'package:livekit_calling_app/features/auth/presentation/login.dart';
 import 'package:livekit_calling_app/features/home/presentation/home.dart';
 import 'constants/app_constants.dart';
 import 'helpers/di.dart';
 import 'helpers/helper_methods.dart';
 import 'helpers/post_login.dart';
 import 'networks/dio/dio.dart';
-import 'welcome_screen.dart';
+import 'package:livekit_calling_app/helpers/call_manager.dart';
 
 final class Loading extends StatefulWidget {
   const Loading({super.key});
@@ -42,6 +41,10 @@ class _LoadingState extends State<Loading> {
       String token = appData.read(kKeyAccessToken);
       DioSingleton.instance.update(token);
       await performPostLoginActions();
+
+      // Attempt to check and restore any active calls
+      // This is the safe place to do it since Auth and storage are ready
+      await CallManager.instance.checkRestoration();
     }
 
     // CallStateProvider registration moved to main.dart for early initialization
