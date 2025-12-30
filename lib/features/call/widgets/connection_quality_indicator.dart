@@ -1,35 +1,39 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../../constants/call_constants.dart';
 
 class ConnectionQualityIndicator extends StatelessWidget {
   final ConnectionQuality quality;
-  final double barWidth;
-  final double maxHeight;
+  final double? barWidth;
+  final double? maxHeight;
 
   const ConnectionQualityIndicator({
     super.key,
     required this.quality,
-    this.barWidth = 4,
-    this.maxHeight = 20,
+    this.barWidth,
+    this.maxHeight,
   });
 
   @override
   Widget build(BuildContext context) {
+    final width = barWidth ?? 4.w;
+    final maxH = maxHeight ?? 20.h;
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: List.generate(4, (index) {
         final isActive = _getActiveBarCount() > index;
-        final height = (maxHeight / 4) * (index + 1);
+        final height = (maxH / 4) * (index + 1);
 
         return Container(
-          width: barWidth,
+          width: width,
           height: height,
-          margin: EdgeInsets.symmetric(horizontal: barWidth / 4),
+          margin: EdgeInsets.symmetric(horizontal: width / 4),
           decoration: BoxDecoration(
             color: isActive ? _getColor() : Colors.grey.shade600,
-            borderRadius: BorderRadius.circular(barWidth / 2),
+            borderRadius: BorderRadius.circular(width / 2),
           ),
         );
       }),
@@ -80,17 +84,17 @@ class ConnectionQualityText extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 8,
-          height: 8,
+          width: 8.w,
+          height: 8.h,
           decoration: BoxDecoration(
             color: _getColor(),
             shape: BoxShape.circle,
           ),
         ),
-        const SizedBox(width: 6),
+        SizedBox(width: 6.w),
         Text(
           _getText(),
-          style: style ?? TextStyle(color: _getColor(), fontSize: 12),
+          style: style ?? TextStyle(color: _getColor(), fontSize: 12.sp),
         ),
       ],
     );
